@@ -1,1 +1,14 @@
 agent
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Data (large / regenerated locally)
+data/*.csv
+data/*.parquet
+data/processed/
+
+# Streamlit
+.streamlit/secrets.toml
