@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # FraudGraph AI
 
 Explainable, graph-based fraud detection. Accounts, cards, and merchants
@@ -69,3 +70,13 @@ the number the GNN + SHAP stage needs to beat.
 - [ ] Shared-attribute ring detection (connected components on merchants
       shared across flagged accounts)
 - [ ] FastAPI backend to decouple scoring from the UI
+=======
+# FraudGraph-AI
+Explainable Real-Time Fraud Detection.
+
+## Problem at hand
+AI fraud models generate too many false positives, while sophisticated fraud rings operate across multiple accounts and transactions.
+
+## Solution
+FraudGraph AI, a graph-based fraud detection system where accounts, cards, devices and transactions are nodes/edges. Combining Graph Neural Networks/graph algorithms with anomaly detection with added SHAP/explainability, so every flagged transaction gets a human-readable reason. 
+>>>>>>> 7ca87c377bd818908ec7e8dfc8bdca692708cd1d
