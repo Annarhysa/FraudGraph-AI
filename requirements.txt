@@ -5,3 +5,8 @@ networkx
 streamlit
 plotly
 scikit-learn
+torch
+torch_geometric
+fastapi
+uvicorn[standard]
+openpyxl

@@ -1,146 +1,205 @@
 """
-FraudGraph AI — alert triage dashboard.
-
-Shows the top anomaly-scored transactions from src/fraudgraph/anomaly.py,
-each with a human-readable "why" explanation, plus a graph view of the
-flagged card's neighborhood (which merchants it touches, and which other
-cards/users share those merchants).
+FraudGraph AI — Fraud Analyst Dashboard.
 
 Run:
     streamlit run app.py
+
+Every page shows analysis of the *signed-in user's uploaded data* — there
+is no shared/demo dataset view. The underlying GraphSAGE model and its
+calibration are still trained on the shared IBM TabFormer sample (see
+src/fraudgraph/scoring.py, run once via the pipeline below); what changes
+per user is which scored batch the dashboard is currently displaying.
+
+Pipeline this depends on (run once, or let store.py build it on first load):
+    python -m src.fraudgraph.data_prep
+    python -m src.fraudgraph.graph_build
+    python -m src.fraudgraph.anomaly
+    python -m src.fraudgraph.gnn
+    python -m src.fraudgraph.scoring
 """
-import ast
-import pickle
+import sys
 from pathlib import Path
 
-import networkx as nx
-import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
-ALERTS_CSV = Path("data/processed/alerts.csv")
-GRAPH_PATH = Path("data/processed/graph.pkl")
+sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-st.set_page_config(page_title="FraudGraph AI", layout="wide")
+from fraudgraph import auth, batches as batch_store, store
+from fraudgraph.ui import (
+    alerts, case_management, components as ui, fraud_rings, investigation,
+    model_monitoring, model_performance, network_explorer, overview,
+    settings_about, transactions, upload_data,
+)
+
+st.set_page_config(page_title="FraudGraph AI", layout="wide", page_icon=ui.FAVICON_PATH)
+ui.inject_css()
+
+PAGES = {
+    "Overview": overview,
+    "Fraud Alerts": alerts,
+    "Investigation": investigation,
+    "Network Explorer": network_explorer,
+    "Fraud Rings": fraud_rings,
+    "Transactions": transactions,
+    "My Uploads": upload_data,
+    "Model Performance": model_performance,
+    "Model Monitoring": model_monitoring,
+    "Cases": case_management,
+    "Settings / About": settings_about,
+}
+
+REQUIRED_FILES = [
+    Path("data/processed/transactions_sample.parquet"),
+    Path("data/processed/gnn_model.pt"),
+]
 
 
-@st.cache_data
-def load_alerts() -> pd.DataFrame:
-    df = pd.read_csv(ALERTS_CSV)
-    df["txn_ts"] = pd.to_datetime(df["txn_ts"])
-    return df
+def login_screen():
+    ui.brand_header()
+    st.caption("Sign in to score your own transactions and save the analysis to your account.")
 
+    tab_login, tab_signup = st.tabs(["Log in", "Create account"])
 
-@st.cache_resource
-def load_graph() -> nx.MultiDiGraph:
-    with open(GRAPH_PATH, "rb") as f:
-        return pickle.load(f)
+    with tab_login:
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Log in", type="primary")
+            if submitted:
+                user = auth.verify_user(username, password)
+                if user is None:
+                    st.error("Invalid username or password.")
+                else:
+                    token = auth.create_session(user["user_id"])
+                    st.query_params["token"] = token
+                    st.rerun()
 
+    with tab_signup:
+        with st.form("signup_form"):
+            new_username = st.text_input("Choose a username")
+            new_password = st.text_input("Choose a password", type="password")
+            confirm_password = st.text_input("Confirm password", type="password")
+            submitted = st.form_submit_button("Create account", type="primary")
+            if submitted:
+                if new_password != confirm_password:
+                    st.error("Passwords don't match.")
+                else:
+                    try:
+                        auth.create_user(new_username, new_password)
+                        st.success("Account created — log in from the other tab.")
+                    except ValueError as e:
+                        st.error(str(e))
 
-def ego_subgraph(g: nx.MultiDiGraph, card_node: str, radius: int = 2) -> nx.Graph:
-    und = g.to_undirected()
-    nodes = nx.single_source_shortest_path_length(und, card_node, cutoff=radius)
-    return und.subgraph(nodes.keys())
-
-
-def plot_neighborhood(g: nx.MultiDiGraph, card_node: str):
-    sub = ego_subgraph(g, card_node, radius=2)
-    if sub.number_of_nodes() > 120:
-        # keep the view readable: nearest nodes only
-        und = g.to_undirected()
-        nodes = nx.single_source_shortest_path_length(und, card_node, cutoff=1)
-        sub = und.subgraph(nodes.keys())
-
-    pos = nx.spring_layout(sub, seed=7)
-
-    edge_x, edge_y = [], []
-    for u, v in sub.edges():
-        edge_x += [pos[u][0], pos[v][0], None]
-        edge_y += [pos[u][1], pos[v][1], None]
-    edge_trace = go.Scatter(x=edge_x, y=edge_y, mode="lines",
-                             line=dict(width=0.5, color="#888"), hoverinfo="none")
-
-    color_map = {"user": "#4C78A8", "card": "#F58518", "merchant": "#54A24B"}
-    node_x, node_y, node_color, node_text, node_size = [], [], [], [], []
-    for n in sub.nodes():
-        node_x.append(pos[n][0])
-        node_y.append(pos[n][1])
-        ntype = sub.nodes[n].get("type", "?")
-        node_color.append("#E45756" if n == card_node else color_map.get(ntype, "#999"))
-        node_text.append(n)
-        node_size.append(18 if n == card_node else 9)
-
-    node_trace = go.Scatter(
-        x=node_x, y=node_y, mode="markers", hoverinfo="text", text=node_text,
-        marker=dict(color=node_color, size=node_size, line=dict(width=1, color="#fff")),
+    st.caption(
+        "Prototype-grade auth: passwords are salted/hashed (PBKDF2), but there's no rate "
+        "limiting or password reset — don't reuse a real password here."
     )
 
-    fig = go.Figure(data=[edge_trace, node_trace])
-    fig.update_layout(
-        showlegend=False, margin=dict(l=0, r=0, t=0, b=0),
-        xaxis=dict(visible=False), yaxis=dict(visible=False),
-        height=420,
+
+def first_upload_screen(user: dict):
+    ui.brand_header()
+    st.subheader(f"Welcome, {user['username']}")
+    st.write(
+        "You haven't scored any transactions yet. Upload a CSV/Excel file to run it through "
+        "the GraphSAGE model and rule engine — the dashboard will then show that analysis."
     )
-    return fig
+    upload_data.render_format_help()
+    batch_id = upload_data.render_upload_form(user, key_prefix="first")
+    if batch_id:
+        st.session_state["active_batch_id"] = batch_id
+        st.rerun()
 
 
-def main():
-    st.title("FraudGraph AI")
-    st.caption("Explainable fraud alerts from graph analytics + rule-based scoring (baseline, pre-GNN)")
+def chooser_screen(user: dict, history: list[dict]):
+    ui.brand_header()
+    st.subheader(f"Welcome back, {user['username']}")
+    st.write("Pick up a previous analysis, or score a new file.")
 
-    if not ALERTS_CSV.exists() or not GRAPH_PATH.exists():
-        st.error(
-            "Missing processed data. Run:\n\n"
-            "```\npython -m fraudgraph.data_prep\npython -m fraudgraph.graph_build\npython -m fraudgraph.anomaly\n```"
+    tab_existing, tab_new = st.tabs(["📂 Continue with an existing analysis", "📤 Upload a new file"])
+
+    with tab_existing:
+        for h in history:
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([3, 1, 1])
+                c1.write(f"**{h['filename']}**")
+                c1.caption(f"{h['batch_id']} · scored {h['created_at'][:19]}")
+                c2.metric("Transactions", h["n_transactions"])
+                if c3.button("Open", key=f"chooser_open_{h['batch_id']}", type="primary"):
+                    st.session_state["active_batch_id"] = h["batch_id"]
+                    st.rerun()
+
+    with tab_new:
+        upload_data.render_format_help()
+        batch_id = upload_data.render_upload_form(user, key_prefix="chooser_new")
+        if batch_id:
+            st.session_state["active_batch_id"] = batch_id
+            st.rerun()
+
+
+current_user = auth.get_user_from_token(st.query_params.get("token"))
+if current_user is None:
+    login_screen()
+    st.stop()
+
+missing = [f for f in REQUIRED_FILES if not f.exists()]
+if missing:
+    st.error(
+        "Missing processed data/model files: " + ", ".join(str(m) for m in missing) +
+        "\n\nRun the pipeline first:\n\n"
+        "```\npython -m src.fraudgraph.data_prep\npython -m src.fraudgraph.graph_build\n"
+        "python -m src.fraudgraph.anomaly\npython -m src.fraudgraph.gnn\n```"
+    )
+    st.stop()
+
+st.session_state["current_user"] = current_user
+
+user_history = batch_store.list_batches(current_user["user_id"])
+valid_batch_ids = {h["batch_id"] for h in user_history}
+
+if st.session_state.get("active_batch_id") not in valid_batch_ids:
+    st.session_state.pop("active_batch_id", None)
+
+if "active_batch_id" not in st.session_state:
+    if not user_history:
+        first_upload_screen(current_user)
+    else:
+        chooser_screen(current_user, user_history)
+    st.stop()
+
+# --- full dashboard ---
+active_meta = next(h for h in user_history if h["batch_id"] == st.session_state["active_batch_id"])
+
+with st.container(border=True):
+    brand_col, user_col, logout_col = st.columns([5, 2, 1], vertical_alignment="center")
+    with brand_col:
+        ui.brand_header(heading="markdown")
+    with user_col:
+        st.markdown(f"👤 **{current_user['username']}**")
+    with logout_col:
+        if st.button("Log out", width="stretch"):
+            auth.delete_session(st.query_params.get("token"))
+            del st.query_params["token"]
+            st.session_state.pop("active_batch_id", None)
+            st.rerun()
+
+    st.caption(f"Viewing **{active_meta['filename']}** ({active_meta['n_transactions']:,} txns)")
+
+    nav_col, switch_col = st.columns([5, 3], vertical_alignment="bottom")
+    with nav_col:
+        default_page = st.session_state.get("nav_page", "Overview")
+        page_name = st.selectbox(
+            "Analysis", list(PAGES.keys()),
+            index=list(PAGES.keys()).index(default_page),
         )
-        return
+        st.session_state["nav_page"] = page_name
+    with switch_col:
+        if st.button("Switch analysis / new upload", width="stretch"):
+            del st.session_state["active_batch_id"]
+            st.rerun()
 
-    alerts = load_alerts()
-    g = load_graph()
+st.divider()
 
-    col1, col2 = st.columns([1, 2])
+PAGES[page_name].render(store)
 
-    with col1:
-        st.subheader("Flagged transactions")
-        alerts_display = alerts.copy()
-        alerts_display["label"] = alerts_display.apply(
-            lambda r: f"#{r.name} · ${r['amount']:.2f} · score {r['anomaly_score']:.2f}"
-            + (" · FRAUD" if r["is_fraud"] else ""),
-            axis=1,
-        )
-        choice = st.selectbox(
-            "Select an alert", alerts_display.index,
-            format_func=lambda i: alerts_display.loc[i, "label"],
-        )
-        st.dataframe(
-            alerts[["user_id", "amount", "anomaly_score", "is_fraud"]].head(50),
-            use_container_width=True, height=400,
-        )
-
-    row = alerts.loc[choice]
-    card_node = f"card:{row['user_id']}:{row['card_id']}"
-
-    with col2:
-        st.subheader(f"Transaction — ${row['amount']:.2f}")
-        st.metric("Anomaly score", f"{row['anomaly_score']:.3f}")
-        st.write(f"**User:** {row['user_id']}  |  **Card:** {row['card_id']}  |  **When:** {row['txn_ts']}")
-
-        st.markdown("#### Why?")
-        reasons = ast.literal_eval(row["reasons_text"]) if row["reasons_text"].startswith("[") \
-            else row["reasons_text"].split(" | ")
-        for r in reasons:
-            st.markdown(f"- {r}")
-
-        if row["is_fraud"]:
-            st.warning("Ground truth: this transaction IS labeled fraud in the source data.")
-
-        st.markdown("#### Card neighborhood")
-        st.caption("Blue = user, orange = cards, green = merchants, red = this transaction's card")
-        if card_node in g:
-            st.plotly_chart(plot_neighborhood(g, card_node), use_container_width=True)
-        else:
-            st.info("Card node not found in graph sample.")
-
-
-if __name__ == "__main__":
-    main()
+st.divider()
+st.caption("v1 · research prototype, not a production fraud engine")

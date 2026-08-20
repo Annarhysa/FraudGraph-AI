@@ -12,3 +12,5 @@ data/processed/
 
 # Streamlit
 .streamlit/secrets.toml
+
+.claude

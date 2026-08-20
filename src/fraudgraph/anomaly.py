@@ -48,7 +48,11 @@ def add_velocity(df: pd.DataFrame) -> pd.DataFrame:
             counts[i] = i - start  # transactions in the preceding hour, excluding itself
         return pd.Series(counts, index=group.index)
 
-    df["velocity_1h"] = df.groupby(["user_id", "card_id"], group_keys=False).apply(_velocity)
+    # groupby().apply() has ambiguous return-shape behavior when the data
+    # reduces to a single group (e.g. a single-card upload) — concatenating
+    # per-group results explicitly sidesteps that instead of relying on it.
+    parts = [_velocity(g) for _, g in df.groupby(["user_id", "card_id"], sort=False)]
+    df["velocity_1h"] = pd.concat(parts).reindex(df.index)
     return df
 
 

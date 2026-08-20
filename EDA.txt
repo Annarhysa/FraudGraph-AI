@@ -1,0 +1,9 @@
+--- EDA on full dataset ---
+  n_txns         : 24386900
+  n_users        : 2000
+  n_cards(raw)   : 9
+  n_merchants    : 100343
+  min_date       : 1991-01-02
+  max_date       : 2020-02-28
+  n_fraud        : 29757
+  fraud_pct      : 0.122
