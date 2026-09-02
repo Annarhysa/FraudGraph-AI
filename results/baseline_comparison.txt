@@ -1,0 +1,49 @@
+==============================================================================
+FraudGraph AI — Baseline vs GraphSAGE Model Comparison (single seed)
+==============================================================================
+
+Dataset       : 677930 transactions (466 users, 14868 merchants)
+Split (temporal, earliest -> latest):
+  train : 338965
+  val   : 67793
+  test  : 271172  (354 fraud, base rate 0.1305%)
+
+Features (identical across every model, incl. GraphSAGE's node features):
+  amount (log1p, standardized), hour-of-day (sin/cos), day-of-week (sin/cos),
+  channel one-hot [Swipe/Chip/Online], has_error flag
+  -> GraphSAGE additionally sees the card<->transaction<->merchant graph structure.
+
+NOTE: this is a single seeded run. See robustness_results.txt for a
+multi-seed sweep — single-run rankings between close models are not reliable
+(see that file's notes on GraphSAGE vs XGBoost variance).
+
+------------------------------------------------------------------------------
+Results on held-out TEST split (k = 200)
+------------------------------------------------------------------------------
+Model                     PR-AUC   ROC-AUC   Precision@K    Lift over random
+----------------------------------------------------------------------------
+XGBoost                   0.0277    0.9085         0.080               61.3x
+Random Forest             0.0162    0.9049         0.060               46.0x
+GraphSAGE                 0.0151    0.8914         0.055               42.1x
+GraphSAGE (no graph)      0.0108    0.8845         0.060               46.0x
+Logistic Regression       0.0040    0.8140         0.000                0.0x
+MLP                       0.0038    0.7915         0.000                0.0x
+Rule-based                0.0034    0.7392         0.010                7.7x
+
+------------------------------------------------------------------------------
+Ablation: what does the graph structure itself contribute?
+------------------------------------------------------------------------------
+  GraphSAGE (full graph)     PR-AUC=0.0151  P@K=0.055
+  GraphSAGE (no graph)       PR-AUC=0.0108  P@K=0.060
+  Delta from graph structure: PR-AUC +0.0043   P@K -0.005
+
+------------------------------------------------------------------------------
+Notes
+------------------------------------------------------------------------------
+- PR-AUC (average precision) is the primary metric given the heavy class
+  imbalance in this dataset; ROC-AUC is included for reference.
+- Rule-based = handcrafted anomaly score (anomaly.py), no training.
+- Classical baselines and GraphSAGE are trained on the SAME temporal split
+  and SAME flat feature matrix (gnn.txn_features); GraphSAGE additionally
+  sees the card/merchant graph topology.
+==============================================================================

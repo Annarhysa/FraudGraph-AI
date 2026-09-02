@@ -46,6 +46,33 @@ def load_sample() -> pd.DataFrame:
     return df
 
 
+def txn_features(df: pd.DataFrame) -> np.ndarray:
+    """Flat per-transaction numeric feature matrix (amount, cyclical time,
+    channel one-hot, error flag) — the same features fed into the GraphSAGE
+    transaction nodes, minus the graph structure. Shared with baselines.py so
+    classical models are compared on identical inputs, not a re-derivation."""
+    amount = df["amount"].values.astype(np.float32)
+    amount_scaled = np.log1p(np.clip(amount, 0, None))
+    amount_scaled = (amount_scaled - amount_scaled.mean()) / (amount_scaled.std() + 1e-6)
+
+    hour = df["txn_ts"].dt.hour.values.astype(np.float32)
+    hour_sin = np.sin(2 * np.pi * hour / 24)
+    hour_cos = np.cos(2 * np.pi * hour / 24)
+
+    dow = df["txn_ts"].dt.dayofweek.values.astype(np.float32)
+    dow_sin = np.sin(2 * np.pi * dow / 7)
+    dow_cos = np.cos(2 * np.pi * dow / 7)
+
+    channel_onehot = np.stack(
+        [(df["channel"] == c).values.astype(np.float32) for c in CHANNELS], axis=1
+    )
+    has_error = (df["errors"].notna() & (df["errors"].astype(str).str.strip() != "")).values.astype(np.float32)
+
+    return np.column_stack(
+        [amount_scaled, hour_sin, hour_cos, dow_sin, dow_cos, channel_onehot, has_error]
+    )  # width = 1+2+2+3+1 = 9
+
+
 def build_graph(df: pd.DataFrame):
     """Returns (Data, id_maps) where id_maps lets us trace node ids back to
     the original card/merchant/transaction identifiers for the alert output."""
@@ -67,28 +94,7 @@ def build_graph(df: pd.DataFrame):
     merchant_offset = n_card + n_txn
     n_nodes = n_card + n_txn + n_merchant
 
-    # --- transaction node features ---
-    amount = df["amount"].values.astype(np.float32)
-    amount_scaled = np.log1p(np.clip(amount, 0, None))
-    amount_scaled = (amount_scaled - amount_scaled.mean()) / (amount_scaled.std() + 1e-6)
-
-    hour = df["txn_ts"].dt.hour.values.astype(np.float32)
-    hour_sin = np.sin(2 * np.pi * hour / 24)
-    hour_cos = np.cos(2 * np.pi * hour / 24)
-
-    dow = df["txn_ts"].dt.dayofweek.values.astype(np.float32)
-    dow_sin = np.sin(2 * np.pi * dow / 7)
-    dow_cos = np.cos(2 * np.pi * dow / 7)
-
-    channel_onehot = np.stack(
-        [(df["channel"] == c).values.astype(np.float32) for c in CHANNELS], axis=1
-    )
-    has_error = (df["errors"].notna() & (df["errors"].astype(str).str.strip() != "")).values.astype(np.float32)
-
-    txn_numeric = np.column_stack(
-        [amount_scaled, hour_sin, hour_cos, dow_sin, dow_cos, channel_onehot, has_error]
-    )  # width = 1+2+2+3+1 = 9
-
+    txn_numeric = txn_features(df)
     numeric_width = txn_numeric.shape[1]
     type_width = 3  # card, transaction, merchant one-hot
     feat_width = type_width + numeric_width
@@ -124,6 +130,18 @@ def build_graph(df: pd.DataFrame):
     return data, meta
 
 
+def strip_edges(data: Data) -> Data:
+    """Ablation: replace the card<->transaction<->merchant edges with pure
+    self-loops, so a SAGEConv's neighbor aggregation reduces to the node's
+    own feature (no cross-node message passing). Same architecture, same
+    node features, same everything except graph structure — isolates what
+    the graph topology itself contributes."""
+    n_nodes = data.num_nodes
+    self_loops = torch.arange(n_nodes, dtype=torch.long)
+    edge_index = torch.stack([self_loops, self_loops])
+    return Data(x=data.x, edge_index=edge_index, y=data.y)
+
+
 def temporal_split(n_txn: int, txn_offset: int):
     # NOTE: fraud labels in this sample only occur in the first ~70% of the
     # time-sorted rows (the source data stops injecting fraud before the
@@ -153,9 +171,14 @@ class FraudSAGE(torch.nn.Module):
         return self.out(h).squeeze(-1)
 
 
-def train(data: Data, train_idx, val_idx) -> FraudSAGE:
-    model = FraudSAGE(in_dim=data.x.shape[1])
-    optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=5e-4)
+def train(
+    data: Data, train_idx, val_idx, seed: int | None = None,
+    epochs: int = EPOCHS, hidden_dim: int = HIDDEN_DIM, lr: float = LR,
+) -> FraudSAGE:
+    if seed is not None:
+        torch.manual_seed(seed)
+    model = FraudSAGE(in_dim=data.x.shape[1], hidden_dim=hidden_dim)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=5e-4)
 
     y_train = data.y[train_idx]
     n_pos = (y_train == 1).sum().item()
@@ -166,7 +189,7 @@ def train(data: Data, train_idx, val_idx) -> FraudSAGE:
     best_val_ap = -1.0
     best_state = None
 
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(1, epochs + 1):
         model.train()
         optimizer.zero_grad()
         logits = model(data.x, data.edge_index)
