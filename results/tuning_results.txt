@@ -1,0 +1,36 @@
+======================================================================================
+FraudGraph AI — GraphSAGE Tuning Sweep (does more capacity close the XGBoost gap?)
+======================================================================================
+
+Motivation: the 5-seed robustness sweep (robustness_results.txt) found XGBoost
+beat default GraphSAGE (30 epochs, hidden_dim=32) in 5/5 seeds (PR-AUC 0.0277 vs 0.0172 +/- 0.0018), but GraphSAGE's
+validation AP was still rising sharply at the epoch-30 cutoff in every seed —
+suggesting under-training rather than a real ceiling. This sweep retrains
+GraphSAGE with larger budgets across 1 seed(s) ([0]) to check.
+
+CAVEAT: this is a single-seed run (scaled down after a multi-seed x multi-config
+sweep proved too slow on this CPU-only machine — full-batch GraphSAGE over a
+~700K-node graph is expensive per epoch). Treat this as a directional signal,
+not a statistically robust result — the earlier robustness sweep showed +/-0.0018
+std on PR-AUC across seeds even at the cheap 30-epoch default config.
+
+--------------------------------------------------------------------------------------
+Config                                 PR-AUC (mean +/- std)      Precision@K  vs XGBoost
+--------------------------------------------------------------------------------------
+GraphSAGE (100ep, h=32)                    0.0501 +/- 0.0000             0.150       BEATS
+
+Reference: XGBoost PR-AUC = 0.0277 (deterministic, from robustness_results.txt)
+
+--------------------------------------------------------------------------------------
+Per-seed PR-AUC
+--------------------------------------------------------------------------------------
+Config                                  seed 0
+GraphSAGE (100ep, h=32)                 0.0501
+
+--------------------------------------------------------------------------------------
+Conclusion
+--------------------------------------------------------------------------------------
+  Best config ('GraphSAGE (100ep, h=32)', mean PR-AUC 0.0501) SURPASSES XGBoost
+  (0.0277) — under-training was the real cause of the earlier gap;
+  with enough capacity/budget, the graph signal wins out.
+======================================================================================

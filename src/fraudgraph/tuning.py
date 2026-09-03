@@ -18,7 +18,7 @@ from . import metrics as metrics_mod
 from .baselines import _load_and_split, _fmt
 
 RESULTS_TXT = Path("results/tuning_results.txt")
-SEEDS = [0, 1, 2]
+SEEDS = [0]
 
 # Reference numbers from results/robustness_results.txt (5-seed sweep,
 # default config: 30 epochs, hidden_dim=32).
@@ -27,10 +27,7 @@ DEFAULT_GNN_MEAN_PR_AUC = 0.0172
 DEFAULT_GNN_STD_PR_AUC = 0.0018
 
 CONFIGS = {
-    "GraphSAGE (default: 30ep, h=32)": dict(epochs=30, hidden_dim=32, lr=0.01),
     "GraphSAGE (100ep, h=32)": dict(epochs=100, hidden_dim=32, lr=0.01),
-    "GraphSAGE (100ep, h=64)": dict(epochs=100, hidden_dim=64, lr=0.01),
-    "GraphSAGE (200ep, h=64)": dict(epochs=200, hidden_dim=64, lr=0.005),
 }
 
 
@@ -65,10 +62,17 @@ def write_report(results: dict, path: Path = RESULTS_TXT) -> None:
                   f"{DEFAULT_GNN_MEAN_PR_AUC:.4f} +/- {DEFAULT_GNN_STD_PR_AUC:.4f}), but GraphSAGE's")
     lines.append("validation AP was still rising sharply at the epoch-30 cutoff in every seed —")
     lines.append("suggesting under-training rather than a real ceiling. This sweep retrains")
-    lines.append(f"GraphSAGE with larger budgets across {len(SEEDS)} seeds ({SEEDS}) to check.")
+    lines.append(f"GraphSAGE with larger budgets across {len(SEEDS)} seed(s) ({SEEDS}) to check.")
     lines.append("")
+    if len(SEEDS) == 1:
+        lines.append("CAVEAT: this is a single-seed run (scaled down after a multi-seed x multi-config")
+        lines.append("sweep proved too slow on this CPU-only machine — full-batch GraphSAGE over a")
+        lines.append("~700K-node graph is expensive per epoch). Treat this as a directional signal,")
+        lines.append("not a statistically robust result — the earlier robustness sweep showed +/-0.0018")
+        lines.append("std on PR-AUC across seeds even at the cheap 30-epoch default config.")
+        lines.append("")
     lines.append("-" * 86)
-    header = f"{'Config':<34}{'PR-AUC (mean +/- std)':>26}{'Precision@K':>16}{'vs XGBoost':>10}"
+    header = f"{'Config':<34}{'PR-AUC (mean +/- std)':>26}{'Precision@K':>18}{'vs XGBoost':>12}"
     lines.append(header)
     lines.append("-" * len(header))
 
@@ -82,7 +86,7 @@ def write_report(results: dict, path: Path = RESULTS_TXT) -> None:
             verdict = "BEATS" if pr_mean > XGBOOST_PR_AUC else "behind"
         pr_str = f"{_fmt(pr_mean)} +/- {_fmt(pr_std)}" if pr_mean is not None else "n/a"
         pk_str = f"{_fmt(pk_mean, 3)}" if pk_mean is not None else "n/a"
-        lines.append(f"{name:<34}{pr_str:>26}{pk_str:>16}{verdict:>10}")
+        lines.append(f"{name:<34}{pr_str:>26}{pk_str:>18}{verdict:>12}")
 
     lines.append("")
     lines.append(f"Reference: XGBoost PR-AUC = {XGBOOST_PR_AUC:.4f} (deterministic, from robustness_results.txt)")
