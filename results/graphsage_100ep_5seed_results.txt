@@ -1,0 +1,88 @@
+==========================================================================================
+FraudGraph AI — GraphSAGE @ 100 epochs, 5-seed confirmation + graph ablation
+==========================================================================================
+
+Fixed config: hidden_dim=32, epochs=100, lr=0.01, seeds=[0, 1, 2, 3, 4]
+Same temporal split, same node/txn features as every other experiment in this repo.
+Purpose: the single-seed tuning.py run found GraphSAGE(100ep)=0.0501 PR-AUC,
+beating XGBoost's 0.0277 — but that was one seed and explicitly flagged as
+directional only. This repeats it across 5 seeds, and re-runs the graph-vs-
+no-graph ablation at 100 epochs (the earlier ablation was only measured at 30).
+
+------------------------------------------------------------------------------------------
+Core results table (mean +/- std where multi-seed; single numbers are prior
+deterministic/known results carried over from robustness_results.txt)
+------------------------------------------------------------------------------------------
+Model                                           PR-AUC       Precision@K              Lift
+------------------------------------------------------------------------------------------
+GraphSAGE 100ep (full graph)         0.0623 +/- 0.0117   0.182 +/- 0.036   139.4x +/- 27.5
+XGBoost                              0.0277 +/- 0.0000               n/a               n/a
+GraphSAGE 30ep (full graph)          0.0172 +/- 0.0018               n/a               n/a
+Random Forest                        0.0160 +/- 0.0003               n/a               n/a
+GraphSAGE 100ep (no graph)           0.0151 +/- 0.0003   0.066 +/- 0.008     50.6x +/- 6.1
+GraphSAGE 30ep (no graph)            0.0110 +/- 0.0005               n/a               n/a
+Logistic Regression                  0.0040 +/- 0.0000               n/a               n/a
+Rule-based                                      0.0034               n/a               n/a
+
+------------------------------------------------------------------------------------------
+Per-seed PR-AUC for the two new 100-epoch variants
+------------------------------------------------------------------------------------------
+Model                                 seed 0      seed 1      seed 2      seed 3      seed 4
+GraphSAGE 100ep (full graph)          0.0501      0.0758      0.0467      0.0672      0.0718
+GraphSAGE 100ep (no graph)            0.0154      0.0149      0.0154      0.0152      0.0146
+
+------------------------------------------------------------------------------------------
+Verdict 1: does GraphSAGE(100ep, full graph) consistently beat XGBoost (0.0277)?
+------------------------------------------------------------------------------------------
+  seed 0: PR-AUC=0.0501  -> beats XGBoost
+  seed 1: PR-AUC=0.0758  -> beats XGBoost
+  seed 2: PR-AUC=0.0467  -> beats XGBoost
+  seed 3: PR-AUC=0.0672  -> beats XGBoost
+  seed 4: PR-AUC=0.0718  -> beats XGBoost
+  GraphSAGE(100ep) beat XGBoost in 5/5 seeds.
+
+  -> CONFIRMED: increasing training budget to 100 epochs consistently lifts
+     GraphSAGE above the strongest tabular baseline. This is a defensible result.
+
+------------------------------------------------------------------------------------------
+Verdict 2: graph ablation at 100 epochs — does the graph still help at this budget?
+------------------------------------------------------------------------------------------
+  seed 0: full=0.0501  no-graph=0.0154  -> graph helped
+  seed 1: full=0.0758  no-graph=0.0149  -> graph helped
+  seed 2: full=0.0467  no-graph=0.0154  -> graph helped
+  seed 3: full=0.0672  no-graph=0.0152  -> graph helped
+  seed 4: full=0.0718  no-graph=0.0146  -> graph helped
+  Graph structure improved PR-AUC in 5/5 seeds (100-epoch budget).
+
+  -> CONFIRMED at 100 epochs too: graph topology contributes consistent, positive
+     signal beyond node features alone, at both training budgets tested (30, 100 ep).
+
+------------------------------------------------------------------------------------------
+Validation PR-AUC trajectory (mean across 5 seeds) — full-graph variant
+Text substitute for 'Figure 1: Validation PR-AUC vs Epoch' (raw per-epoch
+curves saved to results\curves/*.csv for actual plotting)
+------------------------------------------------------------------------------------------
+   epoch     val_pr_auc (mean)    val_pr_auc (std)     val_loss (mean)
+       1                0.0138              0.0033              1.4202
+       5                0.0219              0.0034              1.3028
+      10                0.0237              0.0024              1.0891
+      20                0.0327              0.0044              0.9521
+      30                0.0636              0.0086              0.8792
+      50                0.1579              0.0190              0.8061
+      75                0.1986              0.0098              0.7416
+     100                0.2411              0.0167              0.6980
+
+If val_pr_auc is still rising at epoch 100, that's evidence there's more
+headroom left (i.e. don't yet conclude 100 epochs is the ceiling either).
+
+------------------------------------------------------------------------------------------
+Notes
+------------------------------------------------------------------------------------------
+- Per-epoch curves (train_loss, val_loss, val_pr_auc, val_roc_auc) for every
+  seed x variant run are saved as CSV under results\curves/.
+- 'Reference' rows (Rule-based / LogReg / RF / XGBoost / GraphSAGE 30ep) are
+  carried over from the prior 5-seed sweep, not re-run here.
+- No new features, no hyperparameter search performed in this run by design —
+  only the training-budget question (30ep vs 100ep) and the graph ablation
+  repeated at the new budget.
+==========================================================================================

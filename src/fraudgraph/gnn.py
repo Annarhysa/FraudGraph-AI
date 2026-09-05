@@ -174,7 +174,8 @@ class FraudSAGE(torch.nn.Module):
 def train(
     data: Data, train_idx, val_idx, seed: int | None = None,
     epochs: int = EPOCHS, hidden_dim: int = HIDDEN_DIM, lr: float = LR,
-) -> FraudSAGE:
+    return_history: bool = False,
+):
     if seed is not None:
         torch.manual_seed(seed)
     model = FraudSAGE(in_dim=data.x.shape[1], hidden_dim=hidden_dim)
@@ -188,6 +189,7 @@ def train(
 
     best_val_ap = -1.0
     best_state = None
+    history = []
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -201,11 +203,20 @@ def train(
 
         model.eval()
         with torch.no_grad():
-            val_logits = model(data.x, data.edge_index)[val_idx]
+            all_logits = model(data.x, data.edge_index)
+            val_logits = all_logits[val_idx]
+            val_loss = F.binary_cross_entropy_with_logits(
+                val_logits, data.y[val_idx], pos_weight=pos_weight
+            ).item()
             val_probs = torch.sigmoid(val_logits).numpy()
             val_y = data.y[val_idx].numpy()
             val_ap = average_precision_score(val_y, val_probs)
             val_auc = roc_auc_score(val_y, val_probs)
+
+        history.append({
+            "epoch": epoch, "train_loss": loss.item(), "val_loss": val_loss,
+            "val_pr_auc": val_ap, "val_roc_auc": val_auc,
+        })
 
         if val_ap > best_val_ap:
             best_val_ap = val_ap
@@ -216,6 +227,8 @@ def train(
 
     model.load_state_dict(best_state)
     print(f"Best val AP: {best_val_ap:.4f}")
+    if return_history:
+        return model, history
     return model
 
 
