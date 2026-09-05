@@ -1,0 +1,60 @@
+======================================================================================
+FraudGraph AI — Multi-seed Robustness Sweep (5 seeds: [0, 1, 2, 3, 4])
+======================================================================================
+
+Every model (classical baselines, GraphSAGE full-graph, GraphSAGE no-graph
+ablation) is retrained from scratch per seed, on the same temporal train/
+val/test split, and evaluated on the held-out test split. Mean +/- std
+across seeds below — a ranking is only meaningful if the gap between two
+models exceeds their overlapping std range.
+
+--------------------------------------------------------------------------------------
+Mean +/- std PR-AUC / Precision@K / Lift, ranked by mean PR-AUC
+--------------------------------------------------------------------------------------
+Model                                 PR-AUC         Precision@K                Lift
+------------------------------------------------------------------------------------
+XGBoost                    0.0277 +/- 0.0000     0.080 +/- 0.000       61.3x +/- 0.0
+GraphSAGE                  0.0172 +/- 0.0018     0.063 +/- 0.006       48.3x +/- 4.6
+Random Forest              0.0160 +/- 0.0003     0.063 +/- 0.014      48.3x +/- 10.4
+GraphSAGE (no graph)       0.0110 +/- 0.0005     0.058 +/- 0.005       44.4x +/- 3.9
+MLP                        0.0040 +/- 0.0003     0.003 +/- 0.004        2.3x +/- 3.1
+Logistic Regression        0.0040 +/- 0.0000     0.000 +/- 0.000        0.0x +/- 0.0
+Rule-based                 0.0034 +/- 0.0000     0.010 +/- 0.000        7.7x +/- 0.0
+
+--------------------------------------------------------------------------------------
+Per-seed PR-AUC (raw values, for inspecting run-to-run variance directly)
+--------------------------------------------------------------------------------------
+Model                         seed 0      seed 1      seed 2      seed 3      seed 4
+XGBoost                       0.0277      0.0277      0.0277      0.0277      0.0277
+GraphSAGE                     0.0166      0.0201      0.0182      0.0159      0.0151
+Random Forest                 0.0158      0.0154      0.0162      0.0163      0.0162
+GraphSAGE (no graph)          0.0113      0.0112      0.0114      0.0101      0.0108
+MLP                           0.0043      0.0039      0.0043      0.0037      0.0038
+Logistic Regression           0.0040      0.0040      0.0040      0.0040      0.0040
+Rule-based                    0.0034      0.0034      0.0034      0.0034      0.0034
+
+--------------------------------------------------------------------------------------
+Graph ablation stability: does GraphSAGE(full) beat GraphSAGE(no graph) every seed?
+--------------------------------------------------------------------------------------
+  seed 0: full=0.0166  no-graph=0.0113  -> graph helped
+  seed 1: full=0.0201  no-graph=0.0112  -> graph helped
+  seed 2: full=0.0182  no-graph=0.0114  -> graph helped
+  seed 3: full=0.0159  no-graph=0.0101  -> graph helped
+  seed 4: full=0.0151  no-graph=0.0108  -> graph helped
+  Graph structure improved PR-AUC in 5/5 seeds.
+
+  -> Consistent: graph topology reliably contributes positive signal on
+     this sample, independent of GraphSAGE's random initialization.
+
+--------------------------------------------------------------------------------------
+Ranking stability: how often is each model's PR-AUC rank #1 across seeds?
+--------------------------------------------------------------------------------------
+  XGBoost                  #1 in 5/5 seeds
+  GraphSAGE                #1 in 0/5 seeds
+  Random Forest            #1 in 0/5 seeds
+  GraphSAGE (no graph)     #1 in 0/5 seeds
+  MLP                      #1 in 0/5 seeds
+  Logistic Regression      #1 in 0/5 seeds
+  Rule-based               #1 in 0/5 seeds
+
+======================================================================================

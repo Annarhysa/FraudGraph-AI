@@ -44,13 +44,16 @@ def compute_metrics(df: pd.DataFrame, score_col: str, k: int = TOP_K, use_split:
     }
 
 
-def model_comparison(df: pd.DataFrame, k: int = TOP_K, use_split: bool = True) -> dict:
+def model_comparison(df: pd.DataFrame, k: int = TOP_K, use_split: bool = True, extra_scores: dict | None = None) -> dict:
     # Rank on the full-precision scores, not the rounded *_pct display columns —
     # rounding to 1 decimal creates ties that make precision@K non-deterministic.
-    return {
+    result = {
         "Rule-based": compute_metrics(df, "anomaly_score", k, use_split),
         "GraphSAGE": compute_metrics(df, "gnn_score", k, use_split),
     }
+    for name, col in (extra_scores or {}).items():
+        result[name] = compute_metrics(df, col, k, use_split)
+    return result
 
 
 def curves(df: pd.DataFrame, score_col: str, use_split: bool = True):

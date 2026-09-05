@@ -10,3 +10,4 @@ torch_geometric
 fastapi
 uvicorn[standard]
 openpyxl
+xgboost
