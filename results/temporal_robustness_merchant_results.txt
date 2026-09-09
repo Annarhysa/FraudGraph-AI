@@ -1,0 +1,32 @@
+================================================================================================
+FraudGraph AI — Merchant-only Temporal Robustness (Phase 1 validation)
+================================================================================================
+
+Does Window 0's striking Merchant-only result (0.2063 +/- 0.0244, ~3.3x Full
+Graph) hold across the 3 additional chronological windows? Same frozen config
+(hidden_dim=32, epochs=100, lr=0.01) and same 3-seed methodology as those windows.
+
+------------------------------------------------------------------------------------------------
+Window                                            XGBoost        No Graph     Merchant-only      Full Graph
+-----------------------------------------------------------------------------------------------------------
+Window 0 (original default split)                  0.0277 0.0151+/-0.0003   0.2063+/-0.0244 0.0623+/-0.0117
+Window 1 (train Jan-Apr, val May, test Jun-Oct)      0.0445 0.0368+/-0.0004   0.3352+/-0.0082 0.1237+/-0.0157
+Window 2 (train Jan-Jun, val Jul, test Aug-Oct)      0.0562 0.0445+/-0.0013   0.4182+/-0.0172 0.1770+/-0.0099
+Window 3 (train Jan-Aug, val Sep, test Oct)        0.0663 0.0611+/-0.0002   0.4597+/-0.0210 0.1999+/-0.0175
+
+------------------------------------------------------------------------------------------------
+Per-seed PR-AUC (new merchant-only runs, Windows 1-3; Window 0 already established)
+------------------------------------------------------------------------------------------------
+Window                                             seed 0      seed 1      seed 2
+Window 1 (train Jan-Apr, val May, test Jun-Oct)      0.3276      0.3465      0.3315
+Window 2 (train Jan-Jun, val Jul, test Aug-Oct)      0.4289      0.3939      0.4318
+Window 3 (train Jan-Aug, val Sep, test Oct)        0.4797      0.4306      0.4687
+
+------------------------------------------------------------------------------------------------
+Verdict
+------------------------------------------------------------------------------------------------
+  CONFIRMED across all 4 windows: Merchant-only consistently and substantially
+  outperforms Full Graph. This is not a Window-0-specific artifact — the merchant
+  relationship dominates the graph signal, and mixing in card edges consistently
+  hurts rather than helps, in every chronological evaluation period tested.
+================================================================================================

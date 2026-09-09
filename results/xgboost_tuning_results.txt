@@ -1,0 +1,41 @@
+==========================================================================================
+FraudGraph AI — XGBoost Tuning Sweep (Phase 1: make the comparison fair)
+==========================================================================================
+
+Goal: before claiming GraphSAGE beats XGBoost, give XGBoost a reasonable tuning
+budget on the exact same data (same temporal split, same flat feature matrix,
+same evaluation code). Single seed (42) — this is a hyperparameter search, not
+a robustness sweep; the winning config should later be re-checked across seeds
+if it becomes the reported baseline.
+
+------------------------------------------------------------------------------------------
+Config      max_depth      lr   n_est      PR-AUC   ROC-AUC     P@K      Lift
+-----------------------------------------------------------------------------
+XGB-9               5    0.05     300      0.0277    0.9085   0.080     61.3x
+XGB-3               6    0.05     300      0.0226    0.9004   0.065     49.8x
+XGB-5               6     0.1     300      0.0213    0.8885   0.055     42.1x
+XGB-4               4     0.1     300      0.0210    0.9021   0.070     53.6x
+XGB-7               6    0.05     500      0.0202    0.8948   0.060     46.0x
+XGB-6               8    0.05     300      0.0189    0.8880   0.055     42.1x
+XGB-8               8    0.05     500      0.0185    0.8805   0.050     38.3x
+XGB-2               4    0.05     300      0.0164    0.9102   0.065     49.8x
+XGB-1               3    0.05     300      0.0157    0.9094   0.050     38.3x
+
+------------------------------------------------------------------------------------------
+Comparison against current (untuned) XGBoost and GraphSAGE(100ep, 5-seed)
+------------------------------------------------------------------------------------------
+  Current (untuned) XGBoost      PR-AUC = 0.0277
+  Best tuned XGBoost (XGB-9 )     PR-AUC = 0.0277  (-0.0000 vs untuned)
+  GraphSAGE 100ep (5-seed mean)   PR-AUC = 0.0623 +/- 0.0117
+
+------------------------------------------------------------------------------------------
+Verdict
+------------------------------------------------------------------------------------------
+  Even the best tuned XGBoost (0.0277) falls short of GraphSAGE's
+  1-std lower bound (0.0506), a gap of 0.0229.
+  Tuning XGBoost within a reasonable budget did not close the gap — the
+  GraphSAGE advantage survives this fairness check.
+
+  (Untuned-vs-tuned XGBoost delta: -0.0000 PR-AUC —
+  for context on how much tuning budget alone was worth here.)
+==========================================================================================

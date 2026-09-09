@@ -1,0 +1,43 @@
+============================================================================================
+FraudGraph AI — Relation-Aware GNN (Phase 3): does separating edge types help?
+============================================================================================
+
+Hypothesis: homogeneous SAGEConv mean-aggregates card and merchant neighbors
+together with shared weights, diluting the strong merchant signal with the
+uninformative card signal. RelationAwareSAGE gives each edge type its own
+SAGEConv (separate weights), summing the two representations per layer instead
+of aggregating over a single mixed edge set.
+
+Config: hidden_dim=32, epochs=100, lr=0.01, seeds=[0, 1, 2, 3, 4], Window 0.
+
+--------------------------------------------------------------------------------------------
+Condition                                           PR-AUC       Precision@K            Lift
+--------------------------------------------------------------------------------------------
+Merchant-only                            0.2063 +/- 0.0244               n/a             n/a
+Relation-Aware GNN (separate card + merchant convs)   0.1790 +/- 0.0158   0.361 +/- 0.017 276.5x +/- 13.1
+Full Graph (homogeneous SAGEConv)        0.0623 +/- 0.0117               n/a             n/a
+No Graph                                 0.0151 +/- 0.0003               n/a             n/a
+Card-only                                0.0113 +/- 0.0004               n/a             n/a
+
+--------------------------------------------------------------------------------------------
+Per-seed PR-AUC (Relation-Aware GNN)
+--------------------------------------------------------------------------------------------
+  seed 0: 0.1871
+  seed 1: 0.2051
+  seed 2: 0.1758
+  seed 3: 0.1633
+  seed 4: 0.1637
+
+--------------------------------------------------------------------------------------------
+Verdict
+--------------------------------------------------------------------------------------------
+  Full Graph (homogeneous):    0.0623 +/- 0.0117
+  Relation-Aware GNN:          0.1790 +/- 0.0158
+  Merchant-only (upper ref):   0.2063 +/- 0.0244
+
+  -> PARTIALLY CONFIRMED: relation-aware aggregation substantially beats the
+     homogeneous Full Graph, supporting the dilution hypothesis, but still falls
+     short of Merchant-only alone — card edges contribute some residual noise
+     even when aggregated separately, or the model needs more capacity/tuning
+     to fully exploit the separated pathways.
+============================================================================================

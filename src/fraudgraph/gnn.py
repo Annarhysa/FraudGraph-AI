@@ -73,9 +73,29 @@ def txn_features(df: pd.DataFrame) -> np.ndarray:
     )  # width = 1+2+2+3+1 = 9
 
 
-def build_graph(df: pd.DataFrame):
+def build_graph(
+    df: pd.DataFrame, include_card_edges: bool = True, include_merchant_edges: bool = True,
+    source_mask: np.ndarray | None = None,
+):
     """Returns (Data, id_maps) where id_maps lets us trace node ids back to
-    the original card/merchant/transaction identifiers for the alert output."""
+    the original card/merchant/transaction identifiers for the alert output.
+
+    include_card_edges / include_merchant_edges: for the edge-type ablation —
+    node features and node layout are always identical (same x, same y, same
+    node count/order); only which edge types are wired in changes. False for
+    a type just omits that relationship's edges entirely (no self-loop
+    substitute), so e.g. include_card_edges=False, include_merchant_edges=True
+    gives a "merchant-only" graph where transaction nodes have no card
+    neighbors to aggregate from.
+
+    source_mask: leakage-audit hook. Boolean array, one per transaction row
+    (True = allowed to contribute to its card/merchant hub's embedding). When
+    given, the transaction->hub edge direction is only added for masked-True
+    rows, while the hub->transaction direction is kept for every row — so
+    every transaction still receives its hub's embedding, but a hub's
+    embedding is only computed from the allowed (e.g. train+val) rows, not
+    from other evaluation-split rows. None (default) = every row is a valid
+    source, i.e. the original symmetric/transductive graph."""
     n_txn = len(df)
 
     card_keys = (df["user_id"].astype(str) + ":" + df["card_id"].astype(str)).values
@@ -107,12 +127,36 @@ def build_graph(df: pd.DataFrame):
 
     # --- edges ---
     card_ids = np.array([card_index[k] for k in card_keys])
-    merchant_ids = df["merchant_id"].map(merchant_index).values
+    # BUGFIX: merchant node ids must be shifted by merchant_offset — merchant
+    # nodes occupy the LAST block of the node index ([merchant_offset, n_nodes)),
+    # unlike cards which start at 0. Without this shift, "merchant edges"
+    # collided with the card/transaction id ranges instead of reaching real
+    # merchant nodes (verified: 0 edges touched the merchant node range prior
+    # to this fix). This bug predates this session's changes.
+    merchant_ids = df["merchant_id"].map(merchant_index).values + merchant_offset
     txn_ids = np.arange(n_txn) + txn_offset
 
-    src = np.concatenate([card_ids, txn_ids, merchant_ids, txn_ids])
-    dst = np.concatenate([txn_ids, card_ids, txn_ids, merchant_ids])
-    edge_index = torch.tensor(np.stack([src, dst]), dtype=torch.long)
+    if source_mask is None:
+        source_ok = np.ones(n_txn, dtype=bool)
+    else:
+        source_ok = np.asarray(source_mask, dtype=bool)
+
+    src_parts, dst_parts = [], []
+    if include_card_edges:
+        # hub -> txn (every txn receives its hub's embedding)
+        src_parts.append(card_ids); dst_parts.append(txn_ids)
+        # txn -> hub (only allowed rows contribute to the hub's embedding)
+        src_parts.append(txn_ids[source_ok]); dst_parts.append(card_ids[source_ok])
+    if include_merchant_edges:
+        src_parts.append(merchant_ids); dst_parts.append(txn_ids)
+        src_parts.append(txn_ids[source_ok]); dst_parts.append(merchant_ids[source_ok])
+
+    if src_parts:
+        src = np.concatenate(src_parts)
+        dst = np.concatenate(dst_parts)
+        edge_index = torch.tensor(np.stack([src, dst]), dtype=torch.long)
+    else:
+        edge_index = torch.zeros((2, 0), dtype=torch.long)
 
     y = torch.full((n_nodes,), -1.0, dtype=torch.float)
     y[txn_offset:merchant_offset] = torch.tensor(df["is_fraud"].values.astype(np.float32))

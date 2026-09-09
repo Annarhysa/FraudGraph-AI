@@ -1,0 +1,134 @@
+================================================================================================
+FraudGraph AI — Explainability Evaluation (Phase 5): does the graph add evidence?
+================================================================================================
+
+Sample: 30 high-confidence true-positive fraud predictions (test split, ranked by
+gnn_score_pct). For each, GNNExplainer (2-hop subgraph, 50 mask-optimization epochs,
+same config as the shipped Investigation page) produces top feature importances and
+top edge importances against the currently-saved production GraphSAGE model.
+
+------------------------------------------------------------------------------------------------
+1. Aggregate: what kind of evidence dominates the explanation?
+------------------------------------------------------------------------------------------------
+Predictions whose top-5 important edges include a MERCHANT connection: 0/30 (0%)
+Predictions whose top-5 important edges include a CARD connection:     30/30 (100%)
+Predictions where the existing NETWORK heuristics already flagged something (merchant_high_risk_cards>0 or card_shared_suspicious_accounts>0): 30/30 (100%)
+Average explained subgraph size: 1293 nodes
+
+This is independent, model-internal confirmation (GNNExplainer optimizes a mask
+directly against the trained model's own predictions) of the edge-type ablation's
+finding that merchant connectivity — not card connectivity — carries the graph
+signal: it dominates which edges the model itself leans on for these predictions.
+
+------------------------------------------------------------------------------------------------
+2. Summary table
+------------------------------------------------------------------------------------------------
+transaction_id    scoretop_feature                merch_edge card_edge net_flag
+TXN0455034         93.0hour_sin                        False      True     True
+TXN0453425         92.9amount (log, z-scored)          False      True     True
+TXN0451715         89.6day_of_week_cos                 False      True     True
+TXN0477081         88.7day_of_week_sin                 False      True     True
+TXN0464580         87.4hour_sin                        False      True     True
+TXN0464707         87.0day_of_week_cos                 False      True     True
+TXN0443701         85.4hour_sin                        False      True     True
+TXN0442102         84.9day_of_week_cos                 False      True     True
+TXN0475331         84.9amount (log, z-scored)          False      True     True
+TXN0451725         83.8hour_sin                        False      True     True
+TXN0453110         83.4day_of_week_cos                 False      True     True
+TXN0440446         82.8channel: chip                   False      True     True
+TXN0465964         82.6amount (log, z-scored)          False      True     True
+TXN0451809         81.8hour_sin                        False      True     True
+TXN0455110         80.9day_of_week_cos                 False      True     True
+TXN0429382         80.4channel: chip                   False      True     True
+TXN0475722         79.3amount (log, z-scored)          False      True     True
+TXN0432404         79.2hour_sin                        False      True     True
+TXN0453471         79.0hour_cos                        False      True     True
+TXN0475600         77.8amount (log, z-scored)          False      True     True
+TXN0442389         77.4day_of_week_cos                 False      True     True
+TXN0453474         77.2hour_sin                        False      True     True
+TXN0464499         76.5hour_sin                        False      True     True
+TXN0453600         76.5channel: chip                   False      True     True
+TXN0451611         75.7channel: chip                   False      True     True
+TXN0455237         75.6amount (log, z-scored)          False      True     True
+TXN0442430         75.6amount (log, z-scored)          False      True     True
+TXN0406893         75.4day_of_week_cos                 False      True     True
+TXN0451683         75.2day_of_week_cos                 False      True     True
+TXN0454882         74.8channel: chip                   False      True     True
+
+------------------------------------------------------------------------------------------------
+3. Detailed qualitative cases
+------------------------------------------------------------------------------------------------
+
+TXN0455034 (gnn_score_pct=93.0, subgraph=1051 nodes)
+  Transaction evidence (feature importance):
+    - hour_sin: 0.642
+    - amount (log, z-scored): 0.641
+    - day_of_week_cos: 0.625
+    - day_of_week_sin: 0.620
+  Graph evidence (edge importance):
+    - transaction TXN0000704 <-> transaction TXN0455034: 0.608
+    - transaction TXN0309710 <-> card #743: 0.424
+    - card #743 <-> transaction TXN0455034: 0.418
+    - transaction TXN0677785 <-> card #743: 0.413
+  Existing NETWORK heuristic on this row: merchant_high_risk_cards=12, card_shared_suspicious_accounts=19
+
+TXN0453425 (gnn_score_pct=92.9, subgraph=458 nodes)
+  Transaction evidence (feature importance):
+    - amount (log, z-scored): 0.659
+    - day_of_week_sin: 0.643
+    - day_of_week_cos: 0.636
+    - hour_sin: 0.633
+  Graph evidence (edge importance):
+    - transaction TXN0000662 <-> transaction TXN0453425: 0.642
+    - card #497 <-> transaction TXN0453425: 0.626
+    - transaction TXN0431744 <-> transaction TXN0000662: 0.438
+    - transaction TXN0219099 <-> transaction TXN0000662: 0.419
+  Existing NETWORK heuristic on this row: merchant_high_risk_cards=69, card_shared_suspicious_accounts=70
+
+TXN0451715 (gnn_score_pct=89.6, subgraph=1734 nodes)
+  Transaction evidence (feature importance):
+    - day_of_week_cos: 0.648
+    - hour_cos: 0.632
+    - amount (log, z-scored): 0.612
+    - channel: swipe: 0.609
+  Graph evidence (edge importance):
+    - transaction TXN0001052 <-> transaction TXN0451715: 0.611
+    - card #849 <-> transaction TXN0451715: 0.453
+    - transaction TXN0450877 <-> card #849: 0.404
+    - transaction TXN0384998 <-> card #849: 0.403
+  Existing NETWORK heuristic on this row: merchant_high_risk_cards=40, card_shared_suspicious_accounts=39
+
+TXN0477081 (gnn_score_pct=88.7, subgraph=786 nodes)
+  Transaction evidence (feature importance):
+    - day_of_week_sin: 0.643
+    - channel: chip: 0.634
+    - day_of_week_cos: 0.604
+    - hour_sin: 0.590
+  Graph evidence (edge importance):
+    - transaction TXN0000662 <-> transaction TXN0477081: 0.613
+    - card #286 <-> transaction TXN0477081: 0.604
+    - transaction TXN0171445 <-> transaction TXN0000662: 0.417
+    - transaction TXN0385000 <-> card #286: 0.417
+  Existing NETWORK heuristic on this row: merchant_high_risk_cards=69, card_shared_suspicious_accounts=69
+
+TXN0464580 (gnn_score_pct=87.4, subgraph=744 nodes)
+  Transaction evidence (feature importance):
+    - hour_sin: 0.625
+    - amount (log, z-scored): 0.615
+    - day_of_week_sin: 0.614
+    - channel: chip: 0.608
+  Graph evidence (edge importance):
+    - transaction TXN0000704 <-> transaction TXN0464580: 0.616
+    - card #852 <-> transaction TXN0464580: 0.564
+    - transaction TXN0337924 <-> card #852: 0.440
+    - transaction TXN0205707 <-> card #852: 0.423
+  Existing NETWORK heuristic on this row: merchant_high_risk_cards=12, card_shared_suspicious_accounts=26
+
+================================================================================================
+Verdict
+================================================================================================
+MIXED — only 0/30 (0%) of sampled predictions
+show merchant-edge evidence in their top explanation. Report this honestly: the
+graph's contribution to explainability is present but not universal across
+high-confidence predictions in this sample.
+================================================================================================

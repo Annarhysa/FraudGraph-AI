@@ -1,0 +1,42 @@
+============================================================================================
+FraudGraph AI — Leakage Audit (Phase 2 hard gate): causal vs transductive merchant graph
+============================================================================================
+
+Setup: merchant-only graph, Window 0, hidden_dim=32, epochs=100, lr=0.01, seeds=0-4.
+CAUSAL variant: test-split transactions cannot feed their features into their
+merchant hub's embedding (source_mask excludes test rows); they still receive
+their hub's embedding, computed only from train+val history. This removes any
+test-test (or future-within-test) information flow through the merchant hub.
+
+--------------------------------------------------------------------------------------------
+Condition                                             PR-AUC         Precision@K
+--------------------------------------------------------------------------------
+Transductive (original, all rows can be hub sources)   0.2063 +/- 0.0244     0.456 +/- 0.037
+Causal (test rows excluded as hub sources)   0.2282 +/- 0.0212     0.468 +/- 0.013
+
+Per-seed PR-AUC (causal):
+  seed 0: 0.2617
+  seed 1: 0.2075
+  seed 2: 0.2348
+  seed 3: 0.2340
+  seed 4: 0.2032
+
+--------------------------------------------------------------------------------------------
+Verdict
+--------------------------------------------------------------------------------------------
+  Transductive: 0.2063 +/- 0.0244
+  Causal:       0.2282 +/- 0.0212
+  Drop: -0.0219 PR-AUC (110.6% of the transductive result retained)
+
+  -> The causal result's 1-std range overlaps the transductive result's 1-std
+     lower bound: the merchant signal is NOT meaningfully dependent on test-test
+     information flow. The advantage is legitimate — it comes from merchant
+     reputation learned in train/val and correctly generalized forward to test.
+
+Context from the non-training analysis (see conversation): 48/49 test-period fraud
+merchants already had fraud in train, and 44/49 also in val — i.e. most test fraud
+sits at merchants whose risk was already learnable before the test period began.
+Several merchants show extreme fraud concentration (e.g. 79/87, 108/128, 159/204
+transactions fraudulent) — a very strong, legitimately-learnable reputation signal
+independent of any test-test leakage pathway.
+============================================================================================

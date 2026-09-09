@@ -1,0 +1,101 @@
+------------------------------------------------------------
+Part A: chronological fraud distribution (monthly)
+------------------------------------------------------------
+Month       Transactions     Fraud   Fraud %
+2019-01            49447       203    0.4105
+2019-02            44519       156    0.3504
+2019-03            49612       215    0.4334
+2019-04            47707       218    0.4570
+2019-05            49614       260    0.5240
+2019-06            48183       215    0.4462
+2019-07            49705       156    0.3139
+2019-08            49722       247    0.4968
+2019-09            47784       142    0.2972
+2019-10            49263       275    0.5582
+2019-11            47858         0    0.0000
+2019-12            49443         0    0.0000
+2020-01            50049         0    0.0000
+2020-02            45024         0    0.0000
+
+Fraud is present Jan-Oct 2019 only; Nov 2019-Feb 2020 (~192K rows, ~28% of
+the sample) has ZERO fraud labels. This is a dataset limitation (the source
+data stops injecting fraud before the sample window ends), not an artifact of
+our sampling — every temporal window below keeps its TEST period within the
+fraud-bearing Jan-Oct range for this reason.
+
+============================================================================================
+Part B/C: Temporal Robustness — GraphSAGE vs Tuned XGBoost across evaluation windows
+============================================================================================
+
+Frozen configs (no re-tuning in this experiment):
+  XGBoost:   max_depth=5, learning_rate=0.05, n_estimators=300, seed=42
+  GraphSAGE: hidden_dim=32, epochs=100, lr=0.01, seeds=[0, 1, 2]
+
+NOTE: 3 seeds (not the original 5) are used per window here to keep this
+multi-window sweep's CPU-only runtime bounded (this is 3x the model-training
+volume of the single-window 5-seed sweep). Mean+/-std is still reported, but
+treat the per-window std as a slightly less precise estimate than Window 0's.
+
+Window 0 (reference, NOT re-run here) = the ORIGINAL default 50/10/40 split
+used in every earlier experiment. Its test period runs Sep 2019 -> Feb 2020,
+i.e. ~71% of its test rows fall in the zero-fraud Nov-Feb tail (see Part A).
+Windows 1-3 below keep test entirely inside the fraud-bearing Jan-Oct region.
+
+--------------------------------------------------------------------------------------------
+Window 0 (reference / original split, includes zero-fraud padding in test)
+--------------------------------------------------------------------------------------------
+  XGBoost (depth=5)               0.0277
+  GraphSAGE 100ep (full graph)    0.0623 +/- 0.0117
+  GraphSAGE 100ep (no graph)      0.0151 +/- 0.0003
+
+--------------------------------------------------------------------------------------------
+Window 1 (train Jan-Apr, val May, test Jun-Oct)
+--------------------------------------------------------------------------------------------
+Model                                           PR-AUC       Precision@K              Lift
+------------------------------------------------------------------------------------------
+GraphSAGE 100ep (full graph)         0.1237 +/- 0.0157   0.388 +/- 0.041     91.8x +/- 9.7
+XGBoost (depth=5)                               0.0445             0.175             41.4x
+GraphSAGE 100ep (no graph)           0.0368 +/- 0.0004   0.142 +/- 0.002     33.5x +/- 0.6
+
+  -> GraphSAGE(100ep) beats XGBoost here (1-std lower bound > XGBoost): True
+  -> Graph structure helps here (full > no-graph): True
+
+--------------------------------------------------------------------------------------------
+Window 2 (train Jan-Jun, val Jul, test Aug-Oct)
+--------------------------------------------------------------------------------------------
+Model                                           PR-AUC       Precision@K              Lift
+------------------------------------------------------------------------------------------
+GraphSAGE 100ep (full graph)         0.1770 +/- 0.0099   0.452 +/- 0.025     99.8x +/- 5.4
+XGBoost (depth=5)                               0.0562             0.150             33.2x
+GraphSAGE 100ep (no graph)           0.0445 +/- 0.0013   0.158 +/- 0.009     35.0x +/- 2.1
+
+  -> GraphSAGE(100ep) beats XGBoost here (1-std lower bound > XGBoost): True
+  -> Graph structure helps here (full > no-graph): True
+
+--------------------------------------------------------------------------------------------
+Window 3 (train Jan-Aug, val Sep, test Oct)
+--------------------------------------------------------------------------------------------
+Model                                           PR-AUC       Precision@K              Lift
+------------------------------------------------------------------------------------------
+GraphSAGE 100ep (full graph)         0.1999 +/- 0.0175   0.320 +/- 0.018     57.3x +/- 3.2
+XGBoost (depth=5)                               0.0663             0.145             26.0x
+GraphSAGE 100ep (no graph)           0.0611 +/- 0.0002   0.153 +/- 0.005     27.5x +/- 0.8
+
+  -> GraphSAGE(100ep) beats XGBoost here (1-std lower bound > XGBoost): True
+  -> Graph structure helps here (full > no-graph): True
+
+============================================================================================
+Overall temporal robustness verdict
+============================================================================================
+  Window 1 (train Jan-Apr, val May, test Jun-Oct): GraphSAGE>XGBoost=True  graph_helps=True
+  Window 2 (train Jan-Jun, val Jul, test Aug-Oct): GraphSAGE>XGBoost=True  graph_helps=True
+  Window 3 (train Jan-Aug, val Sep, test Oct): GraphSAGE>XGBoost=True  graph_helps=True
+
+GraphSAGE beat tuned XGBoost in 3/3 new windows (+ Window 0 reference).
+Graph structure helped in 3/3 new windows (+ Window 0 reference).
+
+-> The GraphSAGE advantage and the graph's contribution both survive across
+   every chronological evaluation window tested, not just the original split.
+   This is the strongest form of the claim your research question can currently
+   support: relational structure provides a temporally robust advantage.
+============================================================================================

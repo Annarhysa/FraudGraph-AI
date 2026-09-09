@@ -1,0 +1,96 @@
+================================================================================================
+FraudGraph AI — Fraud-Ring (Louvain Community) Quantitative Evaluation (Phase 4)
+================================================================================================
+
+Method: clusters.py connects cards that share a merchant on a high-risk
+transaction (gnn_score_pct >= 75), then runs Louvain community detection on
+that card graph. This evaluates whether the resulting communities actually
+concentrate fraud, and how much of the dataset's fraud an investigator would
+find by triaging only the highest-signal communities.
+
+Dataset: 677930 transactions, 2087 fraud (0.3078% overall fraud rate)
+Detected communities: 71 (min 2 cards each)
+
+------------------------------------------------------------------------------------------------
+1. Fraud enrichment: cluster fraud rate vs overall fraud rate
+------------------------------------------------------------------------------------------------
+Communities with >=1 fraud transaction: 25 / 71 (35.2%)
+Mean enrichment among fraud-containing communities: 2.4x overall fraud rate
+Highest-enrichment community: RING0068 — fraud_rate=2.72% (7/257 txns), enrichment=8.8x
+
+Top 15 communities by fraud rate:
+cluster_id    cards  merchants    txns  fraud_txns  fraud_rate  enrichment
+RING0068          2         68     257           7       2.72%        8.8x
+RING0002         57       1593   25850         535       2.07%        6.7x
+RING0024          2         97     797          13       1.63%        5.3x
+RING0004          6        283    4171          62       1.49%        4.8x
+RING0009         48       1434   31427         388       1.23%        4.0x
+RING0053          2         97     886           8       0.90%        2.9x
+RING0035          2        136    1060           9       0.85%        2.8x
+RING0014          3        179    1186           9       0.76%        2.5x
+RING0017          2        103    1501          11       0.73%        2.4x
+RING0016          3        168    2616          19       0.73%        2.4x
+RING0028          3        133    1290           9       0.70%        2.3x
+RING0044          4        175    2181          11       0.50%        1.6x
+RING0048          2         95     797           4       0.50%        1.6x
+RING0042          2        123    1684           8       0.48%        1.5x
+RING0037          5        267    2297          10       0.44%        1.4x
+
+------------------------------------------------------------------------------------------------
+2. Fraud capture: top-N communities ranked by FRAUD COUNT
+------------------------------------------------------------------------------------------------
+Top N       Clusters  Transactions   % of all txns  Fraud txns  % of all fraud
+5                  5        118731          17.51%        1180          56.54%
+10                10        144594          21.33%        1261          60.42%
+20                20        158898          23.44%        1351          64.73%
+
+------------------------------------------------------------------------------------------------
+2b. Fraud capture: top-N communities ranked by AVG RISK SCORE (the app's default sort)
+------------------------------------------------------------------------------------------------
+Top N       Clusters  Transactions   % of all txns  Fraud txns  % of all fraud
+5                  5          4809           0.71%           0           0.00%
+10                10         15503           2.29%          16           0.77%
+20                20         30322           4.47%          59           2.83%
+
+------------------------------------------------------------------------------------------------
+3. Community concentration: do a few communities dominate?
+------------------------------------------------------------------------------------------------
+Communities (%)        Communities (n)   Cumulative fraud captured
+1                                    1                      25.63%
+5                                    4                      53.81%
+10                                   7                      58.31%
+20                                  14                      62.39%
+50                                  36                      65.50%
+100                                 71                      65.50%
+
+Single largest-fraud community (RING0002) alone captures 25.63% of all fraud with 25850 transactions (3.813% of all transactions).
+
+================================================================================================
+Verdict
+================================================================================================
+The top 10 communities by fraud count contain 60.4% of all fraud
+transactions while representing only 21.33% of all transactions —
+a 2.8x concentration of fraud relative to transaction volume.
+
+IMPORTANT CAVEAT 1 (product finding, not just research): the app's actual default
+UI sort (avg_risk_score, section 2b) performs far worse than ranking by fraud
+count — top 5 by avg_risk_score captured 0% of fraud, top 20 only ~2.8%, vs 56.5%
+and 64.7% respectively when ranked by fraud count. avg_risk_score is dominated by
+small, tight, high-risk-looking-but-actually-clean communities, while the fraud-
+dense communities are large and their risk score gets averaged down. If this
+evaluation is to translate into product value, the ring list's default sort should
+change (e.g. total/max fraud-relevant signal, not a per-community average).
+
+IMPORTANT CAVEAT 2: the two dominant communities (RING0002: 57 cards / 1593 merchants / 25850 txns; RING0009: 48 cards / 1434 merchants / 31427 txns) are large and diffuse,
+not tight coordinated rings — most of the top-10 fraud capture comes from these two
+giant components rather than many small suspicious groups. The remaining ~65
+communities (from rank 15 onward) add essentially zero additional fraud capture
+(65.50% plateaus from rank 36 through rank 71). Read 'fraud-ring detection' here as
+'two large risk-adjacent card populations + a long tail of small, mostly clean
+communities' rather than many discrete criminal rings — a fair characterization for
+a thesis, but don't oversell the granularity of what Louvain found on this graph.
+
+-> Enrichment is present but modest/inconsistent across communities — useful
+   as a triage signal but should be presented with the caveat that not every
+   detected community is fraud-relevant.
+================================================================================================
