@@ -13,31 +13,30 @@ Config: hidden_dim=32, epochs=100, lr=0.01, seeds=[0, 1, 2, 3, 4], Window 0.
 --------------------------------------------------------------------------------------------
 Condition                                           PR-AUC       Precision@K            Lift
 --------------------------------------------------------------------------------------------
-Merchant-only                            0.2063 +/- 0.0244               n/a             n/a
-Relation-Aware GNN (separate card + merchant convs)   0.1790 +/- 0.0158   0.361 +/- 0.017 276.5x +/- 13.1
-Full Graph (homogeneous SAGEConv)        0.0623 +/- 0.0117               n/a             n/a
+Merchant-only                            0.0858 +/- 0.0098               n/a             n/a
+Relation-Aware GNN (separate card + merchant convs)   0.0575 +/- 0.0053   0.022 +/- 0.016  16.9x +/- 12.5
+Full Graph (homogeneous SAGEConv)        0.0549 +/- 0.0067               n/a             n/a
 No Graph                                 0.0151 +/- 0.0003               n/a             n/a
 Card-only                                0.0113 +/- 0.0004               n/a             n/a
 
 --------------------------------------------------------------------------------------------
 Per-seed PR-AUC (Relation-Aware GNN)
 --------------------------------------------------------------------------------------------
-  seed 0: 0.1871
-  seed 1: 0.2051
-  seed 2: 0.1758
-  seed 3: 0.1633
-  seed 4: 0.1637
+  seed 0: 0.0521
+  seed 1: 0.0553
+  seed 2: 0.0533
+  seed 3: 0.0601
+  seed 4: 0.0664
 
 --------------------------------------------------------------------------------------------
 Verdict
 --------------------------------------------------------------------------------------------
-  Full Graph (homogeneous):    0.0623 +/- 0.0117
-  Relation-Aware GNN:          0.1790 +/- 0.0158
-  Merchant-only (upper ref):   0.2063 +/- 0.0244
+  Full Graph (homogeneous):    0.0549 +/- 0.0067
+  Relation-Aware GNN:          0.0575 +/- 0.0053
+  Merchant-only (upper ref):   0.0858 +/- 0.0098
 
-  -> PARTIALLY CONFIRMED: relation-aware aggregation substantially beats the
-     homogeneous Full Graph, supporting the dilution hypothesis, but still falls
-     short of Merchant-only alone — card edges contribute some residual noise
-     even when aggregated separately, or the model needs more capacity/tuning
-     to fully exploit the separated pathways.
+  -> NOT CONFIRMED: relation-aware aggregation does not meaningfully beat the
+     homogeneous Full Graph. The dilution hypothesis is not supported by this
+     experiment — the card relationship may be actively unhelpful (adding noise)
+     regardless of how it's aggregated, not merely diluting the merchant signal.
 ============================================================================================

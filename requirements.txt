@@ -11,3 +11,4 @@ fastapi
 uvicorn[standard]
 openpyxl
 xgboost
+matplotlib

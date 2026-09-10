@@ -9,83 +9,83 @@ concentrate fraud, and how much of the dataset's fraud an investigator would
 find by triaging only the highest-signal communities.
 
 Dataset: 677930 transactions, 2087 fraud (0.3078% overall fraud rate)
-Detected communities: 71 (min 2 cards each)
+Detected communities: 56 (min 2 cards each)
 
 ------------------------------------------------------------------------------------------------
 1. Fraud enrichment: cluster fraud rate vs overall fraud rate
 ------------------------------------------------------------------------------------------------
-Communities with >=1 fraud transaction: 25 / 71 (35.2%)
-Mean enrichment among fraud-containing communities: 2.4x overall fraud rate
-Highest-enrichment community: RING0068 — fraud_rate=2.72% (7/257 txns), enrichment=8.8x
+Communities with >=1 fraud transaction: 17 / 56 (30.4%)
+Mean enrichment among fraud-containing communities: 2.2x overall fraud rate
+Highest-enrichment community: RING0045 — fraud_rate=2.14% (10/468 txns), enrichment=6.9x
 
 Top 15 communities by fraud rate:
 cluster_id    cards  merchants    txns  fraud_txns  fraud_rate  enrichment
-RING0068          2         68     257           7       2.72%        8.8x
-RING0002         57       1593   25850         535       2.07%        6.7x
-RING0024          2         97     797          13       1.63%        5.3x
-RING0004          6        283    4171          62       1.49%        4.8x
-RING0009         48       1434   31427         388       1.23%        4.0x
-RING0053          2         97     886           8       0.90%        2.9x
-RING0035          2        136    1060           9       0.85%        2.8x
-RING0014          3        179    1186           9       0.76%        2.5x
-RING0017          2        103    1501          11       0.73%        2.4x
-RING0016          3        168    2616          19       0.73%        2.4x
-RING0028          3        133    1290           9       0.70%        2.3x
-RING0044          4        175    2181          11       0.50%        1.6x
-RING0048          2         95     797           4       0.50%        1.6x
-RING0042          2        123    1684           8       0.48%        1.5x
-RING0037          5        267    2297          10       0.44%        1.4x
+RING0045          2         87     468          10       2.14%        6.9x
+RING0004         52       1346   21167         415       1.96%        6.4x
+RING0005         49       1293   25419         300       1.18%        3.8x
+RING0041          2         76     765           9       1.18%        3.8x
+RING0047          3         96     737           8       1.09%        3.5x
+RING0006         56       1554   30759         245       0.80%        2.6x
+RING0010         55       1106   20069         129       0.64%        2.1x
+RING0022          3         89    1103           6       0.54%        1.8x
+RING0020          2         77     484           2       0.41%        1.3x
+RING0011         74       1550   36136         149       0.41%        1.3x
+RING0008         35       1237   24091          82       0.34%        1.1x
+RING0003          5        358    4578          14       0.31%        1.0x
+RING0044          3         82     885           2       0.23%        0.7x
+RING0032          2        101    1130           2       0.18%        0.6x
+RING0002         40       1090   25533          29       0.11%        0.4x
 
 ------------------------------------------------------------------------------------------------
 2. Fraud capture: top-N communities ranked by FRAUD COUNT
 ------------------------------------------------------------------------------------------------
 Top N       Clusters  Transactions   % of all txns  Fraud txns  % of all fraud
-5                  5        118731          17.51%        1180          56.54%
-10                10        144594          21.33%        1261          60.42%
-20                20        158898          23.44%        1351          64.73%
+5                  5        133550          19.70%        1238          59.32%
+10                10        188985          27.88%        1382          66.22%
+20                20        207441          30.60%        1410          67.56%
 
 ------------------------------------------------------------------------------------------------
 2b. Fraud capture: top-N communities ranked by AVG RISK SCORE (the app's default sort)
 ------------------------------------------------------------------------------------------------
 Top N       Clusters  Transactions   % of all txns  Fraud txns  % of all fraud
-5                  5          4809           0.71%           0           0.00%
-10                10         15503           2.29%          16           0.77%
-20                20         30322           4.47%          59           2.83%
+5                  5          8600           1.27%          12           0.57%
+10                10         68385          10.09%         290          13.90%
+20                20        109790          16.19%         340          16.29%
 
 ------------------------------------------------------------------------------------------------
 3. Community concentration: do a few communities dominate?
 ------------------------------------------------------------------------------------------------
 Communities (%)        Communities (n)   Cumulative fraud captured
-1                                    1                      25.63%
-5                                    4                      53.81%
-10                                   7                      58.31%
-20                                  14                      62.39%
-50                                  36                      65.50%
-100                                 71                      65.50%
+1                                    1                      19.89%
+5                                    3                      46.00%
+10                                   6                      63.25%
+20                                  11                      66.60%
+50                                  28                      67.56%
+100                                 56                      67.56%
 
-Single largest-fraud community (RING0002) alone captures 25.63% of all fraud with 25850 transactions (3.813% of all transactions).
+Single largest-fraud community (RING0004) alone captures 19.89% of all fraud with 21167 transactions (3.122% of all transactions).
 
 ================================================================================================
 Verdict
 ================================================================================================
-The top 10 communities by fraud count contain 60.4% of all fraud
-transactions while representing only 21.33% of all transactions —
-a 2.8x concentration of fraud relative to transaction volume.
+The top 10 communities by fraud count contain 66.2% of all fraud
+transactions while representing only 27.88% of all transactions —
+a 2.4x concentration of fraud relative to transaction volume.
 
 IMPORTANT CAVEAT 1 (product finding, not just research): the app's actual default
 UI sort (avg_risk_score, section 2b) performs far worse than ranking by fraud
-count — top 5 by avg_risk_score captured 0% of fraud, top 20 only ~2.8%, vs 56.5%
-and 64.7% respectively when ranked by fraud count. avg_risk_score is dominated by
-small, tight, high-risk-looking-but-actually-clean communities, while the fraud-
-dense communities are large and their risk score gets averaged down. If this
-evaluation is to translate into product value, the ring list's default sort should
-change (e.g. total/max fraud-relevant signal, not a per-community average).
+count — top 5 by avg_risk_score captured only 0.57% of fraud, top 20 only ~16.3%,
+vs 59.3% and 67.6% respectively when ranked by fraud count. avg_risk_score is
+dominated by small, tight, high-risk-looking-but-actually-clean communities, while
+the fraud-dense communities are large and their risk score gets averaged down. If
+this evaluation is to translate into product value, the ring list's default sort
+should change (e.g. total/max fraud-relevant signal, not a per-community average).
 
-IMPORTANT CAVEAT 2: the two dominant communities (RING0002: 57 cards / 1593 merchants / 25850 txns; RING0009: 48 cards / 1434 merchants / 31427 txns) are large and diffuse,
+IMPORTANT CAVEAT 2: the two dominant communities (RING0004: 52 cards / 1346 merchants / 21167 txns; RING0005: 49 cards / 1293 merchants / 25419 txns) are large and diffuse,
 not tight coordinated rings — most of the top-10 fraud capture comes from these two
-giant components rather than many small suspicious groups. The remaining ~65
-communities (from rank 15 onward) add essentially zero additional fraud capture
-(65.50% plateaus from rank 36 through rank 71). Read 'fraud-ring detection' here as
+giant components rather than many small suspicious groups. The remaining ~45
+communities (from rank ~11 onward) add essentially zero additional fraud capture
+(67.56% plateaus from rank 28 through rank 56). Read 'fraud-ring detection' here as
 'two large risk-adjacent card populations + a long tail of small, mostly clean
 communities' rather than many discrete criminal rings — a fair characterization for
 a thesis, but don't oversell the granularity of what Louvain found on this graph.

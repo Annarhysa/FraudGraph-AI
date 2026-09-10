@@ -1,0 +1,111 @@
+================================================================================================
+FraudGraph AI — Reproducibility Audit (Phase 6, step 1)
+================================================================================================
+
+Purpose: before compiling final tables, catalogue every results file — what it measured, its
+exact config, and whether it reflects the CORRECTED graph (gnn.build_graph's merchant_offset
+bugfix, applied mid-project: merchant edges previously never reached real merchant nodes).
+Anything not re-verified is explicitly marked so it is never mistaken for a final number.
+
+Bug timeline: the bug predates this project's experiments entirely (present in the original
+build_graph). It was discovered via an explainability run (Phase 5) whose GNNExplainer output
+showed structurally-impossible transaction<->transaction edges. Fixed in gnn.py; verified by
+direct edge_index inspection (0 edges touched the merchant node range before the fix, ~25% of
+edges do after). All experiments below post-fix were re-trained from scratch, not patched.
+
+------------------------------------------------------------------------------------------------
+Status legend: [CORRECT] unaffected by the bug | [FIXED] re-run after the fix | [STALE-SUPERSEDED]
+pre-fix, buggy Full-Graph/Merchant-only numbers superseded by a later [FIXED] file | [UNVERIFIED]
+pre-fix, not re-run (historical only, not used in final tables)
+------------------------------------------------------------------------------------------------
+
+xgboost_tuning_results.txt                 [CORRECT]
+  9 XGBoost configs (depth 3-8, lr 0.05/0.10, n_estimators 300/500), Window 0, seed 42.
+  Never touches the graph — tabular features only. Untouched by the bug.
+
+baseline_comparison.txt                     [STALE-SUPERSEDED for GraphSAGE row only]
+robustness_results.txt                      [STALE-SUPERSEDED for GraphSAGE row only]
+  5-seed sweep, XGBoost/RF/LogReg/MLP/Rule-based (all [CORRECT], graph-free) vs GraphSAGE at the
+  ORIGINAL 30-epoch default config (0.0172+/-0.0018, buggy Full Graph). This 30-epoch number was
+  never re-run post-fix — it was superseded in relevance by the decision to move to 100 epochs
+  (tuning_results.txt) before the bug was found, and 100-epoch Full Graph IS corrected
+  (edge_ablation_results.txt: 0.0549+/-0.0067). Do not cite the 30-epoch GraphSAGE number as a
+  final result; the classical-baseline rows (XGBoost 0.0277, RF 0.0160+/-0.0003, etc.) remain valid.
+
+tuning_results.txt                          [STALE-SUPERSEDED]
+  Single-seed 100-epoch check (0.0501) that motivated the 5-seed follow-up. Buggy Full Graph.
+  Superseded by edge_ablation_results.txt's 5-seed corrected Full Graph (0.0549+/-0.0067, seed 0
+  alone in that run was 0.0534 — consistent with this file's single-seed 0.0501, i.e. the
+  correction did not change the "100 epochs helps" qualitative conclusion, only the ablation
+  breakdown of full vs merchant-only).
+
+graphsage_100ep_5seed_results.txt           [STALE-SUPERSEDED for Full Graph row only]
+  Full Graph: buggy, 0.0623+/-0.0117 -> superseded by edge_ablation_results.txt (0.0549+/-0.0067).
+  No Graph: 0.0151+/-0.0003 -> [CORRECT], self-loops only, no merchant_ids involved, unaffected.
+
+edge_ablation_results.txt                   [FIXED]
+  Window 0, 5 seeds, hidden_dim=32, epochs=100. Full Graph and Merchant-only RE-TRAINED with the
+  fix; Card-only (0.0113+/-0.0004) and No Graph (0.0151+/-0.0003) reused as [CORRECT]/unaffected.
+  THIS IS THE CANONICAL WINDOW-0 EDGE-ABLATION RESULT.
+
+temporal_robustness_results.txt             [STALE-SUPERSEDED for Full Graph rows only]
+  Windows 1-3: XGBoost and No Graph rows [CORRECT]/unaffected. Full Graph rows buggy ->
+  superseded by temporal_robustness_fullgraph_fix_results.txt.
+
+temporal_robustness_fullgraph_fix_results.txt   [FIXED]
+  Windows 0-3, Full Graph RE-TRAINED with the fix (Window 0 value sourced from
+  edge_ablation_results.txt). THE CANONICAL FULL-GRAPH TEMPORAL RESULT.
+
+temporal_robustness_merchant_results.txt    [FIXED]
+  Windows 0-3, Merchant-only RE-TRAINED with the fix (rewritten in place; the file's history
+  shows an intermediate pre-fix version that was fully replaced, not merged). THE CANONICAL
+  MERCHANT-ONLY TEMPORAL RESULT.
+
+leakage_audit_results.txt                   [FIXED]
+  Window 0, 5 seeds. Both transductive (0.0858+/-0.0098) and causal (0.1410+/-0.0167) variants
+  use the corrected graph (rewritten in place after the background run captured a stale
+  reference constant). THE CANONICAL LEAKAGE-AUDIT RESULT.
+
+relation_aware_results.txt                  [FIXED]
+  Window 0, 5 seeds. RE-TRAINED with the fix. Conclusion REVERSED relative to the pre-fix run:
+  relation-aware aggregation (0.0575+/-0.0053) no longer meaningfully beats homogeneous Full
+  Graph (0.0549+/-0.0067) — both are far below Merchant-only (0.0858+/-0.0098). The "dilution
+  hypothesis" from Phase 3 is NOT supported by the corrected experiment.
+
+fraud_ring_evaluation_results.txt           [FIXED]
+  Re-run against a RETRAINED production model (data/processed/gnn_model.pt regenerated via
+  `python -m fraudgraph.gnn` after the fix; alerts_master.parquet rebuilt to match). Louvain
+  clustering itself (clusters.py) groups transactions by the RAW merchant_id dataframe column,
+  not via gnn.build_graph's edges — so clustering topology was never affected by the bug; only
+  the gnn_score_pct values used for the >=75 high-risk threshold changed slightly, giving
+  56 communities (was 71) with a similar qualitative shape.
+
+explainability_evaluation_results.txt       [FIXED]
+  Re-run against the retrained production model + corrected graph. This is the run that
+  surfaced the bug in the first place (structurally-impossible transaction<->transaction edges
+  in the pre-fix GNNExplainer output); post-fix, every reported edge correctly terminates at a
+  real card or merchant node.
+
+------------------------------------------------------------------------------------------------
+Production code / app state
+------------------------------------------------------------------------------------------------
+- src/fraudgraph/gnn.py: build_graph bugfixed (merchant_offset shift applied to merchant_ids).
+- data/processed/gnn_model.pt: retrained post-fix (30-epoch default config, matches gnn.main()).
+- data/processed/alerts_master.parquet: rebuilt from the retrained model.
+- data/processed/clusters.parquet / cluster_members.parquet: rebuilt (clusters.detect_clusters
+  force=True) against the corrected alerts_master.parquet.
+- KNOWN UNFIXED PRODUCT ISSUE (see fraud_ring_evaluation_results.txt caveat 1): the Fraud Rings
+  page's default sort (avg_risk_score) captures far less fraud (0.6% in top 5) than sorting by
+  fraud-relevant signal would (59% in top 5 by fraud count). Not yet changed in the UI/API code.
+
+------------------------------------------------------------------------------------------------
+Environment
+------------------------------------------------------------------------------------------------
+Python venv: .venv (Windows). Key packages: torch + torch_geometric (CPU-only training observed
+throughout — no CUDA device used in any run), scikit-learn, xgboost, duckdb, networkx, matplotlib
+(added this phase for figures). Dataset: IBM TabFormer sample, 677930 transactions, 466 users,
+14868 merchants, Jan 2019-Feb 2020, fraud present only Jan-Oct 2019 (2087 fraud, 0.31% base rate).
+All experiments use the SAME sample (data/processed/transactions_sample.parquet) and the SAME
+gnn.txn_features() feature matrix throughout — no feature set changed between experiments; only
+temporal split boundaries, graph edge composition, and model architecture varied per experiment.
+================================================================================================

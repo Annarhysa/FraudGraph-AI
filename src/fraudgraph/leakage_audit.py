@@ -37,7 +37,7 @@ from .baselines import _load_and_split, _fmt
 RESULTS_TXT = Path("results/leakage_audit_results.txt")
 SEEDS = [0, 1, 2, 3, 4]
 
-TRANSDUCTIVE_REFERENCE = (0.2063, 0.0244)  # merchant-only, Window 0, from edge_ablation_results.txt
+TRANSDUCTIVE_REFERENCE = (0.0858, 0.0098)  # merchant-only, Window 0, CORRECTED (edge_ablation_results.txt, post merchant_offset bugfix)
 
 
 def run() -> list:
@@ -91,7 +91,7 @@ def write_report(results: list, path: Path = RESULTS_TXT) -> None:
     lines.append("-" * 92)
     lines.append(f"{'Condition':<40}{'PR-AUC':>20}{'Precision@K':>20}")
     lines.append("-" * 80)
-    lines.append(f"{'Transductive (original, all rows can be hub sources)':<40}{_fmt(trans_mean)+' +/- '+_fmt(trans_std):>20}{'0.456 +/- 0.037':>20}")
+    lines.append(f"{'Transductive (original, all rows can be hub sources)':<40}{_fmt(trans_mean)+' +/- '+_fmt(trans_std):>20}{'0.069 +/- 0.035':>20}")
     lines.append(f"{'Causal (test rows excluded as hub sources)':<40}{_fmt(pr_mean)+' +/- '+_fmt(pr_std):>20}{_fmt(pk_mean,3)+' +/- '+_fmt(pk_std,3):>20}")
     lines.append("")
     lines.append("Per-seed PR-AUC (causal):")
@@ -126,7 +126,7 @@ def write_report(results: list, path: Path = RESULTS_TXT) -> None:
         lines.append("     share of the reported merchant-only advantage depends on test-split")
         lines.append("     transactions informing each other through the shared merchant hub, which is")
         lines.append("     NOT available in a strict real-time deployment. Report the CAUSAL number as")
-        lines.append("     the defensible one going forward, not the transductive 0.2063.")
+        lines.append(f"     the defensible one going forward, not the transductive {trans_mean:.4f}.")
     lines.append("")
     lines.append("Context from the non-training analysis (see conversation): 48/49 test-period fraud")
     lines.append("merchants already had fraud in train, and 44/49 also in val — i.e. most test fraud")

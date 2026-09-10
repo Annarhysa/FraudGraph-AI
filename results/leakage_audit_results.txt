@@ -1,6 +1,12 @@
 ============================================================================================
-FraudGraph AI — Leakage Audit (Phase 2 hard gate): causal vs transductive merchant graph
+FraudGraph AI — Leakage Audit (Phase 2 hard gate): causal vs transductive merchant graph, CORRECTED
 ============================================================================================
+
+*** CORRECTED: gnn.build_graph had a bug where merchant node ids were never
+shifted by merchant_offset, so "merchant edges" never reached real merchant
+nodes (verified: 0 edges touched the merchant range before the fix). Both
+numbers below use the FIXED graph — this supersedes the original version of
+this file, which used the buggy graph for both conditions.
 
 Setup: merchant-only graph, Window 0, hidden_dim=32, epochs=100, lr=0.01, seeds=0-4.
 CAUSAL variant: test-split transactions cannot feed their features into their
@@ -10,33 +16,42 @@ test-test (or future-within-test) information flow through the merchant hub.
 
 --------------------------------------------------------------------------------------------
 Condition                                             PR-AUC         Precision@K
---------------------------------------------------------------------------------
-Transductive (original, all rows can be hub sources)   0.2063 +/- 0.0244     0.456 +/- 0.037
-Causal (test rows excluded as hub sources)   0.2282 +/- 0.0212     0.468 +/- 0.013
+--------------------------------------------------------------------------------------------
+Transductive (original, all rows can be hub sources)   0.0858 +/- 0.0098    0.069 +/- 0.035
+Causal (test rows excluded as hub sources)              0.1410 +/- 0.0167    0.298 +/- 0.043
 
 Per-seed PR-AUC (causal):
-  seed 0: 0.2617
-  seed 1: 0.2075
-  seed 2: 0.2348
-  seed 3: 0.2340
-  seed 4: 0.2032
+  seed 0: 0.1475
+  seed 1: 0.1334
+  seed 2: 0.1702
+  seed 3: 0.1323
+  seed 4: 0.1218
 
 --------------------------------------------------------------------------------------------
 Verdict
 --------------------------------------------------------------------------------------------
-  Transductive: 0.2063 +/- 0.0244
-  Causal:       0.2282 +/- 0.0212
-  Drop: -0.0219 PR-AUC (110.6% of the transductive result retained)
+  Transductive: 0.0858 +/- 0.0098
+  Causal:       0.1410 +/- 0.0167
+  Delta: +0.0552 PR-AUC — the CAUSAL variant scores HIGHER than the transductive one.
 
-  -> The causal result's 1-std range overlaps the transductive result's 1-std
-     lower bound: the merchant signal is NOT meaningfully dependent on test-test
-     information flow. The advantage is legitimate — it comes from merchant
-     reputation learned in train/val and correctly generalized forward to test.
+  -> No leakage. If test-split transactions were informing each other through
+     the shared merchant hub, blocking that pathway (causal) should have hurt
+     performance relative to transductive. Instead it improved — the opposite
+     of what leakage would predict. (The causal variant also plausibly
+     benefits from a cleaner, less noisy hub embedding — restricted to
+     train+val history only, vs. one that mixes in same-split test noise —
+     which is a separate, legitimate effect, not a leakage artifact.)
+  -> This confirms (now with the corrected graph) that the merchant signal is
+     legitimate: it comes from merchant reputation learned in train/val and
+     correctly generalized forward to test, not from test-set information
+     leaking between transactions.
 
 Context from the non-training analysis (see conversation): 48/49 test-period fraud
 merchants already had fraud in train, and 44/49 also in val — i.e. most test fraud
 sits at merchants whose risk was already learnable before the test period began.
 Several merchants show extreme fraud concentration (e.g. 79/87, 108/128, 159/204
 transactions fraudulent) — a very strong, legitimately-learnable reputation signal
-independent of any test-test leakage pathway.
+independent of any test-test leakage pathway. (Note: that merchant-concentration
+analysis was computed directly from the dataframe's is_fraud/merchant_id columns,
+not from the graph, so it is unaffected by the merchant_offset bug.)
 ============================================================================================

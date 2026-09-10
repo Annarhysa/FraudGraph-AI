@@ -35,10 +35,13 @@ HIDDEN_DIM = 32
 LR = 0.01
 
 REFERENCE = {
+    # CORRECTED (post merchant_offset bugfix in gnn.build_graph — merchant
+    # edges previously never reached real merchant nodes). From
+    # edge_ablation_results.txt.
     "No Graph": (0.0151, 0.0003),
-    "Merchant-only": (0.2063, 0.0244),
+    "Merchant-only": (0.0858, 0.0098),
     "Card-only": (0.0113, 0.0004),
-    "Full Graph (homogeneous SAGEConv)": (0.0623, 0.0117),
+    "Full Graph (homogeneous SAGEConv)": (0.0549, 0.0067),
 }
 
 
