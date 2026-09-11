@@ -1,3 +1,11 @@
+================================================================================================
+[SUPERSEDED — READ BEFORE CITING] See results/reproducibility_audit.txt.
+This file predates the merchant_offset graph bugfix. Its Full Graph rows (Windows 1-3) are buggy
+and superseded by results/temporal_robustness_fullgraph_fix_results.txt. Its XGBoost and No Graph
+rows are unaffected by the bug and remain valid. Merchant-only was not present in this original
+file; see results/temporal_robustness_merchant_results.txt for the corrected canonical version.
+================================================================================================
+
 ------------------------------------------------------------
 Part A: chronological fraud distribution (monthly)
 ------------------------------------------------------------

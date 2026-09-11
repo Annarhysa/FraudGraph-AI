@@ -19,6 +19,7 @@ SAMPLE_PARQUET = Path("data/processed/transactions_sample.parquet")
 
 SAMPLE_USERS = 300  # number of distinct users to keep in the working sample
 SAMPLE_START_DATE = "2019-01-01"  # only keep recent transactions so the sample stays small
+SAMPLE_SEED = 42  # fixes the filler-user sample so a clean rebuild reproduces the exact dataset
 
 
 def convert_to_parquet(con: duckdb.DuckDBPyConnection) -> None:
@@ -96,7 +97,7 @@ def build_sample(con: duckdb.DuckDBPyConnection) -> None:
                 SELECT DISTINCT user_id
                 FROM recent
                 WHERE user_id NOT IN (SELECT user_id FROM fraud_users)
-                USING SAMPLE {SAMPLE_USERS} ROWS
+                USING SAMPLE reservoir({SAMPLE_USERS} ROWS) REPEATABLE ({SAMPLE_SEED})
             ),
             sample_users AS (
                 SELECT user_id FROM fraud_users
@@ -115,6 +116,9 @@ def build_sample(con: duckdb.DuckDBPyConnection) -> None:
 
 def main() -> None:
     con = duckdb.connect()
+    # DuckDB's reservoir sampling is only reproducible under REPEATABLE with single-threaded
+    # execution -- parallel scan order otherwise still varies the sample run to run.
+    con.execute("SET threads = 1")
     convert_to_parquet(con)
     print_eda(con)
     build_sample(con)

@@ -1,3 +1,12 @@
+================================================================================================
+[SUPERSEDED — READ BEFORE CITING] See results/reproducibility_audit.txt.
+This file predates the merchant_offset graph bugfix (src/fraudgraph/gnn.py). Its GraphSAGE row
+used a broken graph where merchant edges never reached real merchant nodes. The classical-baseline
+rows (Rule-based/LogReg/RF/MLP/XGBoost) never touched the graph and remain valid.
+Canonical corrected GraphSAGE numbers: results/edge_ablation_results.txt and
+results/final_results_tables.txt.
+================================================================================================
+
 ==============================================================================
 FraudGraph AI — Baseline vs GraphSAGE Model Comparison (single seed)
 ==============================================================================

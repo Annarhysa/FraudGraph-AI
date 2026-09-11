@@ -94,9 +94,39 @@ Production code / app state
 - data/processed/alerts_master.parquet: rebuilt from the retrained model.
 - data/processed/clusters.parquet / cluster_members.parquet: rebuilt (clusters.detect_clusters
   force=True) against the corrected alerts_master.parquet.
-- KNOWN UNFIXED PRODUCT ISSUE (see fraud_ring_evaluation_results.txt caveat 1): the Fraud Rings
-  page's default sort (avg_risk_score) captures far less fraud (0.6% in top 5) than sorting by
-  fraud-relevant signal would (59% in top 5 by fraud count). Not yet changed in the UI/API code.
+- PRODUCT ISSUE FIXED: the Fraud Rings page's default sort was avg_risk_score, which captured far
+  less fraud (0.6% in top 5) than a deployable alternative (see fraud_ring_evaluation_results.txt
+  caveat 1). src/fraudgraph/clusters.py now sorts by max_risk_score instead (~32% in top 5,
+  ~65% in top 20 — close to the oracle fraud-count ranking's 59-68%, using only model scores,
+  no ground-truth labels). Verified end-to-end via a post-fix sanity check (clean rebuild from
+  raw data, full scoring pipeline, Streamlit + FastAPI boot checks, Investigation/Upload/Fraud
+  Rings/auth+cases flows) on 2026-09-10 — see results/final_sanity_check.txt.
+
+- STALE-SUPERSEDED files (baseline_comparison.txt, robustness_results.txt, tuning_results.txt,
+  graphsage_100ep_5seed_results.txt, temporal_robustness_results.txt) have been moved to
+  results/superseded/ with an in-file banner, so they are not accidentally cited as current.
+
+- SAMPLING REPRODUCIBILITY GAP FIXED (2026-09-10, per final_sanity_check.txt step 2):
+  src/fraudgraph/data_prep.py's build_sample() previously used DuckDB's `USING SAMPLE N ROWS`
+  with no fixed seed, so the 300 randomly-chosen non-fraud "filler" users (and therefore the
+  total transaction/user/merchant counts) differed on every rebuild, even though fraud rows were
+  always deterministically included. Fixed by switching to
+  `USING SAMPLE reservoir(300 ROWS) REPEATABLE (42)` AND forcing `SET threads = 1` on the DuckDB
+  connection — REPEATABLE alone was insufficient because DuckDB's default parallel scan order
+  still varied the reservoir sample between runs; single-threaded execution was required for the
+  seed to actually pin the result (verified deterministic across 3 consecutive clean reruns:
+  649,480 txns / 454 users / 2,087 fraud, identical every time).
+  IMPORTANT CAVEAT: this seed was added AFTER the dataset backing every published result in this
+  project (677,930 txns / 466 users / 2,087 fraud) was generated, from an unseeded run. It is
+  not possible to recover that exact historical filler-user draw retroactively — the seeded
+  sample (649,480/454/2,087) is a different, self-consistent draw, not a reproduction of the
+  historical one. Fraud transaction count is identical either way (2,087, since fraud users are
+  always included unconditionally), so this does not affect any reported PR-AUC/statistical
+  conclusion. The production data/processed/ artifacts were NOT regenerated against the new
+  seeded sample as part of this fix — they remain the original 677,930-txn dataset, so every
+  number in final_results_tables.txt / statistical_analysis.txt / the shipped app remains exactly
+  as published. The seed only guarantees that a FUTURE clean `python -m fraudgraph.data_prep`
+  run reproduces itself exactly, going forward.
 
 ------------------------------------------------------------------------------------------------
 Environment

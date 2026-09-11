@@ -1,3 +1,10 @@
+================================================================================================
+[SUPERSEDED — READ BEFORE CITING] See results/reproducibility_audit.txt.
+This file predates the merchant_offset graph bugfix. Its Full Graph row is buggy and superseded
+by results/edge_ablation_results.txt (0.0549 +/- 0.0067). Its No Graph row is unaffected by the
+bug (self-loops only, no merchant_ids involved) and remains valid.
+================================================================================================
+
 ==========================================================================================
 FraudGraph AI — GraphSAGE @ 100 epochs, 5-seed confirmation + graph ablation
 ==========================================================================================

@@ -1,3 +1,10 @@
+================================================================================================
+[SUPERSEDED — READ BEFORE CITING] See results/reproducibility_audit.txt.
+This single-seed 100-epoch run predates the merchant_offset graph bugfix (buggy Full Graph).
+It correctly motivated moving from 30->100 epochs, but its PR-AUC value is superseded by the
+corrected 5-seed result in results/edge_ablation_results.txt (Full Graph: 0.0549 +/- 0.0067).
+================================================================================================
+
 ======================================================================================
 FraudGraph AI — GraphSAGE Tuning Sweep (does more capacity close the XGBoost gap?)
 ======================================================================================
