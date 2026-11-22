@@ -87,7 +87,13 @@ def compute_clusters(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
         "n_fraud_transactions", "avg_risk_score", "max_risk_score", "first_activity", "last_activity",
     ]
     if rows:
-        clusters_df = pd.DataFrame(rows).sort_values("avg_risk_score", ascending=False).reset_index(drop=True)
+        # Sort by max_risk_score, not avg_risk_score: averaging a community's
+        # risk score dilutes large fraud-dense communities (their many
+        # low-risk transactions drag the mean down), so avg_risk_score badly
+        # under-surfaces the most fraud-relevant clusters — validated
+        # empirically at ~0.6% fraud captured in the top 5 by avg_risk_score
+        # vs ~32% by max_risk_score (see results/fraud_ring_evaluation_results.txt).
+        clusters_df = pd.DataFrame(rows).sort_values("max_risk_score", ascending=False).reset_index(drop=True)
     else:
         clusters_df = pd.DataFrame(columns=cluster_columns)
     members_df = pd.DataFrame(member_rows, columns=["cluster_id", "card_key"])

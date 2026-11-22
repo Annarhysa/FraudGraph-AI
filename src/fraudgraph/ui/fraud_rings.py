@@ -41,7 +41,7 @@ def render(store):
     c1.metric("Users", int(row["n_users"]))
     c2.metric("Cards", int(row["n_cards"]))
     c3.metric("Merchants", int(row["n_merchants"]))
-    c4.metric("Risk Score", f"{row['avg_risk_score']:.1f}%")
+    c4.metric("Max Risk Score", f"{row['max_risk_score']:.1f}%", help="Communities are ranked by this value (avg risk score dilutes large fraud-dense communities).")
 
     df = store.active_df()
     card_keys = members_df[members_df["cluster_id"] == cluster_id]["card_key"].tolist()

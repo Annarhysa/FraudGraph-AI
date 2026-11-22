@@ -1,0 +1,135 @@
+================================================================================================
+FraudGraph AI — Methodology (Phase 6, step 5)
+================================================================================================
+Written for direct use as a thesis/paper Methods section. Cross-references the canonical
+results files (final_results_tables.txt, statistical_analysis.txt) and source modules.
+
+------------------------------------------------------------------------------------------------
+1. Dataset
+------------------------------------------------------------------------------------------------
+Source: IBM TabFormer synthetic credit-card transaction dataset (24.4M rows raw). A working
+sample is drawn (src/fraudgraph/data_prep.py): all transactions from users who have at least one
+fraud label, plus a random sample of 300 additional non-fraud users, restricted to transactions
+on/after 2019-01-01. The resulting sample: 677,930 transactions, 466 users, 1,502 distinct
+(user, card) pairs, 14,868 merchants, 2,087 fraud transactions (0.31% base rate).
+
+Fraud labels are present only Jan-Oct 2019; Nov 2019-Feb 2020 (~192K rows, ~28% of the sample)
+has zero fraud, a property of the source data's label-injection window, not of our sampling.
+This constrains where valid evaluation windows can be placed (Section 3).
+
+------------------------------------------------------------------------------------------------
+2. Graph construction and features
+------------------------------------------------------------------------------------------------
+Tripartite graph: Card <-> Transaction <-> Merchant. Node layout is fixed: cards occupy
+[0, n_card), transactions [n_card, n_card+n_txn), merchants [n_card+n_txn, n_nodes) (gnn.py,
+build_graph). Transaction node features (gnn.txn_features, 9-dim, shared verbatim between every
+classical baseline and every GraphSAGE variant so comparisons isolate the graph's contribution
+rather than differing feature engineering): log1p-standardized amount; sin/cos-encoded
+hour-of-day and day-of-week; one-hot transaction channel (swipe/chip/online); a binary
+error-flag. Card and merchant nodes carry only a type one-hot (no other features) — they exist
+purely as message-passing hubs. Edges are bidirectional card<->transaction and
+merchant<->transaction; an edge-inclusion flag per relation type allows building card-only,
+merchant-only, full, or no-graph (self-loop-only, via gnn.strip_edges) variants from the same
+node feature matrix.
+
+KNOWN AND FIXED BUG: an earlier version of build_graph never applied the merchant_offset shift
+to merchant node ids, so merchant edges collided with the card/transaction id space instead of
+reaching real merchant nodes. This was discovered via a GNNExplainer run whose output contained
+structurally-impossible transaction<->transaction edges, fixed, and every merchant-touching
+experiment was re-run from scratch (see results/reproducibility_audit.txt for the full ledger).
+
+------------------------------------------------------------------------------------------------
+3. Temporal evaluation splits
+------------------------------------------------------------------------------------------------
+All splits are strictly chronological (train on earliest transactions, evaluate on latest) —
+never randomly shuffled — so evaluation matches real deployment, where a model only ever sees
+the past. "Window 0" (the original default) is a 50/10/40 train/val/test split by row-sorted-
+by-time; because 40% of rows land after the Oct 2019 fraud cutoff, ~71% of Window 0's test rows
+carry zero fraud, diluting precision@K without adding learnable signal. To test whether findings
+are an artifact of that one split, three additional windows were constructed that slide the
+train/val/test boundary later while keeping the TEST period entirely inside the fraud-bearing
+Jan-Oct range (temporal_windows.py):
+  Window 1: train Jan-Apr, val May, test Jun-Oct
+  Window 2: train Jan-Jun, val Jul, test Aug-Oct
+  Window 3: train Jan-Aug, val Sep, test Oct
+A model's val-split performance selects its checkpoint (early stopping on validation Average
+Precision); the test split is never used for any decision.
+
+------------------------------------------------------------------------------------------------
+4. Models
+------------------------------------------------------------------------------------------------
+Classical baselines (src/fraudgraph/baselines.py), all trained on gnn.txn_features() with the
+class-imbalance-appropriate settings noted: Rule-based composite anomaly score (no training;
+src/fraudgraph/anomaly.py); Logistic Regression (class_weight=balanced); Random Forest
+(n_estimators=300, max_depth=8, class_weight=balanced); MLP (one hidden layer, 32 units,
+early_stopping); XGBoost (scale_pos_weight set from the train split's class ratio; tuned via a
+9-point depth/learning_rate/n_estimators grid, src/fraudgraph/xgboost_tuning.py — the untuned
+default, depth=5, was already at the grid's optimum).
+
+GraphSAGE (src/fraudgraph/gnn.py): 2-layer SAGEConv, hidden_dim=32, dropout=0.2, trained with
+class-weighted binary cross-entropy (pos_weight = n_neg/n_pos on the train split), Adam
+(lr=0.01, weight_decay=5e-4), best-val-AP checkpoint selection. Default budget is 30 epochs; a
+tuning experiment (results/tuning_results.txt) found validation AP still rising sharply at that
+cutoff, motivating a 100-epoch budget used for every subsequent GraphSAGE result in this project.
+
+Relation-Aware GNN (src/fraudgraph/relation_gnn.py): an architecture variant giving card and
+merchant edges independent SAGEConv weight matrices per layer (summed after each layer) instead
+of one shared SAGEConv over both edge types, testing whether homogeneous aggregation dilutes the
+merchant signal with the (individually unhelpful) card signal. Same hidden_dim/epochs/lr/seeds
+as the homogeneous model for a controlled comparison.
+
+------------------------------------------------------------------------------------------------
+5. Evaluation metrics
+------------------------------------------------------------------------------------------------
+Primary metric: PR-AUC (average precision), appropriate for the ~0.3% base rate where ROC-AUC is
+easily inflated by the negative class. Secondary: ROC-AUC, Precision@200 (fraction of the
+top-200-by-score transactions that are actually fraud), Lift (Precision@K / base rate). All
+computed via src/fraudgraph/metrics.py, restricted to the test split, ranked on full-precision
+scores (never the rounded *_pct display columns, which would create tie-breaking artifacts).
+
+------------------------------------------------------------------------------------------------
+6. Robustness methodology
+------------------------------------------------------------------------------------------------
+Every GraphSAGE/classical-model comparison is repeated across 5 random seeds (3 for the
+per-window sweeps, to bound CPU-only training time — see statistical_analysis.txt for the
+consequence on confidence-interval width) with a fixed torch.manual_seed per run, reporting
+mean +/- population std. 95% confidence intervals (Student's t, df=n_seeds-1) are computed in
+results/statistical_analysis.txt for the headline comparisons.
+
+------------------------------------------------------------------------------------------------
+7. Leakage audit methodology
+------------------------------------------------------------------------------------------------
+Standard (transductive) message passing lets a merchant hub's embedding be computed from ALL of
+that merchant's transactions, train/val/test alike — a test transaction's score can be partly
+informed by other test-split transactions at the same merchant, which would not be available in
+a strict real-time deployment. To test for this, gnn.build_graph accepts a source_mask: test-
+split transactions are excluded from contributing to their hub's embedding (the transaction ->
+hub edge direction) while still receiving their hub's embedding (the hub -> transaction
+direction is kept for every row). Comparing this "causal" variant's PR-AUC to the standard
+"transductive" one isolates whether performance depends on test-test information flow
+(results/leakage_audit_results.txt).
+
+------------------------------------------------------------------------------------------------
+8. Fraud-ring / investigation evaluation
+------------------------------------------------------------------------------------------------
+src/fraudgraph/clusters.py connects cards that share a merchant on a high-risk transaction
+(gnn_score_pct >= 75), then runs Louvain community detection (networkx) on that card-level
+graph. This clustering step groups by the raw merchant_id dataframe column directly, independent
+of gnn.build_graph's message-passing edges — so it was unaffected by the merchant_offset bug;
+only the gnn_score_pct values used for the high-risk threshold shifted slightly after the
+production model was retrained. Communities are evaluated for fraud enrichment (cluster fraud
+rate / overall fraud rate) and fraud capture (% of all fraud transactions contained in the top-N
+communities, ranked two ways: by raw fraud count, and by the app's shipped default sort,
+avg_risk_score) — src/fraudgraph/fraud_ring_evaluation.py.
+
+------------------------------------------------------------------------------------------------
+9. Explainability evaluation
+------------------------------------------------------------------------------------------------
+GNNExplainer (torch_geometric.explain), applied to a bounded 2-hop ego-subgraph around each
+transaction for tractability (src/fraudgraph/explainability.py, the same code path used by the
+shipped Investigation page), on a sample of 30 high-confidence true-positive fraud predictions
+from the test split. Each explanation's top-4 feature importances and top-5 edge importances are
+classified into TRANSACTION evidence (amount/time/channel/error — visible to any tabular model)
+vs GRAPH evidence (a specific card or merchant connection — visible only to a graph-aware model)
+— src/fraudgraph/explainability_evaluation.py.
+================================================================================================

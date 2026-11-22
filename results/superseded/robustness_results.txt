@@ -1,3 +1,11 @@
+================================================================================================
+[SUPERSEDED — READ BEFORE CITING] See results/reproducibility_audit.txt.
+This file predates the merchant_offset graph bugfix. Its GraphSAGE full-graph row (30-epoch
+default config, buggy graph) is superseded. Classical-baseline rows (graph-free) remain valid.
+Canonical corrected 100-epoch GraphSAGE numbers: results/edge_ablation_results.txt and
+results/final_results_tables.txt.
+================================================================================================
+
 ======================================================================================
 FraudGraph AI — Multi-seed Robustness Sweep (5 seeds: [0, 1, 2, 3, 4])
 ======================================================================================

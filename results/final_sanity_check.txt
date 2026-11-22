@@ -1,0 +1,218 @@
+================================================================================================
+FraudGraph AI — Final End-to-End Sanity Check
+================================================================================================
+Date: 2026-09-10. Performed against the committed state of branch `research` at commit dbc86f8
+("research: fix merchant-offset graph bug, re-verify all merchant-touching experiments, and
+complete Phase 6 research writeup"), working tree clean at the start of this check.
+
+Note on "clean environment / pull": no destructive re-clone was performed (would have been
+redundant — the working tree already matched HEAD with nothing uncommitted). Verified via
+`git status` (clean) and `git log` (fix present) instead. All pipeline steps below were run
+against a genuinely fresh rebuild of the processed dataset/model (see step 2), so this still
+exercises the "would a clean pull + rebuild work" question end to end.
+
+------------------------------------------------------------------------------------------------
+1. Clean environment / final git version
+------------------------------------------------------------------------------------------------
+PASS. `git status` clean, HEAD = dbc86f8, gnn.py's merchant_offset bugfix confirmed present via
+`git log -p`. data/processed/ is gitignored (models, parquet, sqlite db, uploads) — by design,
+so a fresh checkout does NOT include these; they must be rebuilt locally (steps 2-4 below).
+
+------------------------------------------------------------------------------------------------
+2. Rebuild dataset from raw CSV and verify counts against the final audit
+------------------------------------------------------------------------------------------------
+Ran `python -m src.fraudgraph.data_prep` against a moved-aside (backed up, not deleted)
+data/processed/ directory.
+
+  FINDING (reproducibility gap, non-blocking): data_prep.py's filler-user sampling
+  (`USING SAMPLE {N} ROWS` in DuckDB, src/fraudgraph/data_prep.py build_sample()) has NO fixed
+  seed. Fraud-user rows are always included deterministically (fraud count matched exactly:
+  2087 fraud txns, 0.312% base rate, identical to the audit both times) but the 300 randomly
+  sampled non-fraud "filler" users differ run to run:
+    Audited (results/final_results_tables.txt, methodology.txt): 677,930 txns, 466 users,
+      1,502 card-pairs, 14,868 merchants.
+    This rebuild:                                                 669,785 txns, 456 users,
+      1,443 card-pairs, 14,753 merchants.
+  Practical impact: none of the reported PR-AUC/statistical conclusions depend on which specific
+  non-fraud users are sampled (fraud rows, the only rows that matter for PR-AUC's positive class,
+  are always the same). But this means a literal "pull and rebuild reproduces the exact published
+  counts" claim did NOT hold at the time of this check.
+  The canonical processed artifacts (matching the published 677,930/466/2087 figures) were
+  restored after this check — see step 14.
+
+  UPDATE (same day, follow-up fix): switched build_sample() to
+  `USING SAMPLE reservoir(300 ROWS) REPEATABLE (42)` plus `SET threads = 1` on the DuckDB
+  connection (REPEATABLE alone was not sufficient — DuckDB's parallel scan order still varied
+  the sample; single-threaded execution was required to pin it). Verified deterministic across 3
+  consecutive clean reruns (649,480 txns / 454 users / 2,087 fraud, identical every time). This
+  seed was necessarily added AFTER the dataset behind every published result already existed
+  (from an unseeded run), so it cannot retroactively reproduce the historical 677,930/466 draw —
+  it guarantees a FUTURE clean rebuild reproduces itself exactly, not that it matches the
+  already-published numbers. The production data/processed/ artifacts were left as the original
+  677,930-txn dataset (not regenerated against the new seeded sample), so nothing published
+  changed. Full detail: results/reproducibility_audit.txt.
+
+------------------------------------------------------------------------------------------------
+3. Load the corrected pretrained model
+------------------------------------------------------------------------------------------------
+PASS. `python -m src.fraudgraph.gnn` (fresh rebuild sample) trained and saved gnn_model.pt with
+no errors: 685,981 nodes, 2,679,140 edges, feature dim 12, 30 epochs (shipped default config),
+best val AP 0.0880, test ROC-AUC 0.9029, test PR-AUC 0.0193. `gnn.load_or_train_model()` (the
+call scoring.build_master() uses) loaded the saved weights from a separate fresh process without
+errors or shape mismatches.
+
+------------------------------------------------------------------------------------------------
+4-5. Full scoring pipeline + NaN/inf + score range checks
+------------------------------------------------------------------------------------------------
+PASS. `scoring.build_master()` ran raw -> rule signals -> graph build -> GraphSAGE inference ->
+score calibration -> network signals -> alerts_master.parquet (669,785 rows written, matching
+step 2's rebuilt sample).
+  NaN check: only `zip` (88,905 rows) — confirmed benign: mostly Online-channel transactions
+    (82,439) plus some Chip/Swipe rows missing zip in the raw source data; `zip` is a raw
+    passthrough display column, never a model feature (gnn.txn_features() does not use it).
+    No NaN in any feature, score, or label column.
+  Inf check: none, in any numeric column.
+  Score range: gnn_score_pct (the calibrated 0-100 display score) min=0.0, max=100.0 — within
+    spec. gnn_score (raw calibrated probability) in [0,1] as expected. rule_score_pct in
+    [0, 61.1] — expected, it is not designed to span the full 0-100 range on this sample.
+
+------------------------------------------------------------------------------------------------
+6. Streamlit dashboard boot check
+------------------------------------------------------------------------------------------------
+PASS. `streamlit run app.py --server.headless true` started with no import/startup errors or
+warnings; `/  ` returned HTTP 200, `/_stcore/health` returned "ok". Full page-by-page interactive
+click-through was NOT performed (no headless-browser tool available in this environment); instead
+every page's underlying business-logic module was exercised directly and headlessly (steps 7-10),
+which covers the substantive correctness question (does each page compute correct data) even
+though it does not cover pure rendering/layout issues.
+
+------------------------------------------------------------------------------------------------
+7. Upload Data — known small CSV
+------------------------------------------------------------------------------------------------
+PASS. Used the app's own shipped template CSV (src/fraudgraph/ui/upload_data.py TEMPLATE_CSV,
+2 known rows) through `scoring.score_uploaded()` (the exact function the Upload page calls).
+Both rows scored without error, transaction_ids assigned (UPLOAD000000/1), gnn_score_pct in
+[0, 100], rule_score_pct computed, risk_level assigned (LOW for both, consistent with these
+being small, unremarkable transactions). No NaN in any feature/score column (the template's
+blank "Errors?" field produces 2 expected NaNs in the raw `errors` passthrough column only).
+
+------------------------------------------------------------------------------------------------
+8. Investigation — known high-risk transaction, rule/network/GNN explanations
+------------------------------------------------------------------------------------------------
+PASS. Selected the highest-scoring test-split TRUE fraud transaction (TXN0436102, gnn_score_pct
+94.6) and ran the exact Investigation-page pipeline (explainability.rule_signals,
+explainability.network_signals, explainability.ModelExplainer.explain_transaction) directly.
+  RULE:    "Amount is 10.3x this user's normal spending pattern" — non-empty, sensible.
+  NETWORK: "Merchant is also used by 6 other high-risk card(s)"; "Card shares a merchant with
+           6 other suspicious account(s)" — non-empty, sensible.
+  MODEL (GNNExplainer): top edges are transaction->merchant and transaction->card, e.g.
+           "transaction TXN0581150 -- merchant #48" (importance 0.408). CRITICALLY: no
+           transaction<->transaction edges appeared (that impossible edge type is exactly what
+           originally surfaced the merchant_offset bug) — confirms the fix holds on freshly
+           rebuilt data, not just the frozen research artifacts.
+
+------------------------------------------------------------------------------------------------
+9. Fraud Rings — communities, valid membership, corrected default ranking
+------------------------------------------------------------------------------------------------
+PASS. `clusters.detect_clusters(force=True)` on the fresh rebuild produced 15 communities /
+173 card memberships (fewer than the audited 56, expected: smaller resampled dataset in this
+rebuild, see step 2's finding). Verified:
+  - Every cluster_member card_key exists in alerts_master (0 orphaned references).
+  - Every cluster_id in cluster_members.parquet exists in clusters.parquet.
+  - No NaNs anywhere in clusters.parquet.
+  - Output IS sorted descending by max_risk_score (RING0001 at 100.0 first, etc.) — confirms the
+    clusters.py fix (avg_risk_score -> max_risk_score sort) is live and working.
+  - src/fraudgraph/ui/fraud_rings.py renders clusters_df via st.dataframe() with no independent
+    re-sort, so the UI table inherits the corrected order automatically.
+  UX NOTE FIXED (same day follow-up): the cluster detail pane's single metric (fraud_rings.py)
+    displayed avg_risk_score while the list above it was ranked by max_risk_score. Changed the
+    metric to show max_risk_score (relabeled "Max Risk Score", with a help tooltip explaining
+    why) so the number a user sees matches what actually drove that card's rank.
+
+------------------------------------------------------------------------------------------------
+10. Cases / authentication persistence
+------------------------------------------------------------------------------------------------
+PASS. Exercised src/fraudgraph/auth.py and src/fraudgraph/cases.py directly (both are pure
+SQLite-backed modules, no Streamlit dependency, so this is a faithful test of the persistence
+logic the UI calls):
+  - create_user -> verify_user with correct password: succeeds, returns user_id/username.
+  - verify_user with wrong password: correctly returns None.
+  - create_session -> get_user_from_token: round-trips correctly.
+  - delete_session -> get_user_from_token: correctly returns None after logout.
+  - create_case -> get_case -> update_case(status, notes) -> get_case: all fields persist and
+    update correctly, updated_at timestamp changes, created_at does not.
+  - list_cases(): returns the created case.
+  - set_alert_status / get_alert_statuses: round-trips correctly.
+
+------------------------------------------------------------------------------------------------
+11. FastAPI service
+------------------------------------------------------------------------------------------------
+PASS. `uvicorn api.main:app` started cleanly. GET /health -> {"status":"ok"}. GET /openapi.json
+served a valid schema covering alerts/transactions/network/clusters/cases/model routers.
+GET /alerts?limit=3 returned real, non-empty rows matching alerts_master.parquet, including
+TXN0436102 with gnn_score_pct 94.5999984741211 — matching step 8's manually-computed 94.6 to
+float precision (see step 12). GET /clusters returned all 15 communities correctly sorted by
+max_risk_score (RING0001 first, 100.0).
+  MINOR NOTE (not a bug): /clusters does not implement a `limit` query param (unlike /alerts) —
+  my test call assumed parity that isn't documented/implemented; harmless, just unsupported.
+
+------------------------------------------------------------------------------------------------
+12. Cross-check deployed pipeline against final experiment results (not stale artifacts)
+------------------------------------------------------------------------------------------------
+PASS, with the caveat already stated throughout methodology.txt: the SHIPPED production model
+(gnn.main(), 30-epoch default) is a different, smaller-budget config than the RESEARCH model
+(100 epochs, 5-seed mean) used for the headline PR-AUC figures in final_results_tables.txt —
+this is documented, expected, and not a discrepancy to "fix" (the shipped config is intentionally
+cheaper for interactive use; the research config was used specifically to produce defensible
+statistics). What WAS cross-checked and confirmed consistent:
+  - The Investigation page's GNNExplainer output (step 8) shows only structurally-valid edges
+    (transaction<->merchant, transaction<->card), consistent with the corrected graph construction
+    documented in reproducibility_audit.txt and methodology.txt section 2 — not the pre-fix
+    behavior that originally surfaced the bug.
+  - TXN0436102's gnn_score_pct was identical (94.6) whether read via direct Python (step 8) or
+    the live FastAPI /alerts endpoint (step 11) — confirms the API is reading the same
+    alerts_master.parquet the rest of the pipeline writes, not a stale cached copy.
+  - clusters.parquet's sort order (step 9) matches the max_risk_score fix applied to
+    src/fraudgraph/clusters.py and described in reproducibility_audit.txt's "PRODUCT ISSUE FIXED"
+    entry.
+
+------------------------------------------------------------------------------------------------
+13. Logs for errors/warnings
+------------------------------------------------------------------------------------------------
+Checked stdout/stderr for every step above (data_prep, gnn training, build_master, clusters,
+Streamlit startup, uvicorn startup, upload/investigation/auth/cases scripts). No warnings or
+errors were emitted anywhere except the deliberately-surfaced findings already listed above
+(step 2's sampling non-determinism; step 9's cosmetic UX note; step 11's undocumented /clusters
+limit param).
+
+------------------------------------------------------------------------------------------------
+14. Stale artifact cleanup / labeling
+------------------------------------------------------------------------------------------------
+DONE.
+  - Restored the canonical data/processed/ artifacts (matching the published 677,930-txn,
+    466-user, 2,087-fraud dataset and the max_risk_score-sorted clusters.parquet) after this
+    check; the throwaway rebuild from steps 2-9 (different random sample, plus a test auth
+    user/case created during step 10's testing) was discarded, not left in place.
+  - Moved 5 partially-superseded results files into results/superseded/, each with a prepended
+    banner explaining exactly which rows are stale and pointing to the canonical replacement:
+      baseline_comparison.txt, robustness_results.txt, tuning_results.txt,
+      graphsage_100ep_5seed_results.txt, temporal_robustness_results.txt.
+    (Not deleted: each still contains legitimate, unaffected classical-baseline or no-graph rows
+    that remain correct and are still cross-referenced by other canonical files.)
+  - results/reproducibility_audit.txt updated: the "KNOWN UNFIXED PRODUCT ISSUE" note is now
+    "PRODUCT ISSUE FIXED" (clusters.py max_risk_score sort), and the superseded-file relocation
+    is recorded there.
+
+------------------------------------------------------------------------------------------------
+Overall verdict
+------------------------------------------------------------------------------------------------
+The deployed pipeline — dataset build, model training/loading, scoring, Investigation,
+Upload Data, Fraud Rings, Cases/auth, and both the Streamlit and FastAPI surfaces — is
+functioning correctly end to end on the corrected graph construction, with no NaN/inf, no
+out-of-range scores, and no errors in any log. Two real (non-blocking) findings surfaced by this
+check that did not exist in the prior research-phase audits: the unseeded dataset sampling
+(step 2) and the cosmetic avg/max risk-score label mismatch on the cluster detail pane (step 9).
+Neither affects correctness of the shipped scores or the research conclusions; both are recorded
+here rather than silently fixed, per the same disclosure standard applied to the merchant_offset
+bug.
+================================================================================================

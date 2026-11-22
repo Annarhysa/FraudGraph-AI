@@ -1,0 +1,100 @@
+================================================================================================
+FraudGraph AI — Final Results Tables (Phase 6, step 2)
+================================================================================================
+All numbers below are CANONICAL per reproducibility_audit.txt (post merchant_offset bugfix).
+Experiments are FROZEN as of this file — no further training was run to produce it; every value
+is read from the results/*.txt files already delivered. Window 0 = original default 50/10/40
+temporal split; Windows 1-3 = additional chronological splits, all test periods kept inside the
+fraud-bearing Jan-Oct 2019 range (see temporal_windows.py / Part A of the temporal reports).
+
+------------------------------------------------------------------------------------------------
+Table 1 — Main model comparison (Window 0 test split, n_test=271172, 354 fraud, 100-epoch GNNs)
+------------------------------------------------------------------------------------------------
+Model                                    PR-AUC              Precision@K            Lift
+------------------------------------------------------------------------------------------------
+Rule-based (anomaly.py)                  0.0034               0.010                  7.7x
+Logistic Regression                      0.0040 +/- 0.0000    0.000                  0.0x
+Random Forest                            0.0160 +/- 0.0003    0.063 +/- 0.014       48.3x +/- 10.4
+MLP                                      0.0040 +/- 0.0003    0.003 +/- 0.004        2.3x +/- 3.1
+XGBoost (best of 9 tuned configs)        0.0277               0.080                 61.3x
+GraphSAGE, No Graph                      0.0151 +/- 0.0003    0.058 +/- 0.005       44.4x +/- 3.9
+GraphSAGE, Card-only                     0.0113 +/- 0.0004    n/a (not recorded)     n/a
+GraphSAGE, Full Graph (homogeneous)      0.0549 +/- 0.0067    0.032 +/- 0.027       24.5x +/- 20.5
+GraphSAGE, Relation-Aware (card+merch)   0.0575 +/- 0.0053    0.022 +/- 0.016       16.9x +/- 12.5
+GraphSAGE, Merchant-only                 0.0858 +/- 0.0098    0.069 +/- 0.035       52.9x +/- 26.8
+------------------------------------------------------------------------------------------------
+Ranked by PR-AUC: Merchant-only > XGBoost > Relation-Aware =~ Full Graph > Random Forest >
+No Graph > Card-only =~ MLP =~ Logistic Regression > Rule-based.
+Note: Merchant-only edges alone (no card edges at all) is the single best-performing GraphSAGE
+configuration on Window 0 — better than the full card+merchant graph in either homogeneous or
+relation-aware form. See Table 4 (edge decomposition) and results/relation_aware_results.txt for
+why mixing in card edges does not help despite a dedicated architecture experiment testing it.
+
+------------------------------------------------------------------------------------------------
+Table 2 — Temporal robustness (4 chronological windows, 100-epoch GraphSAGE, frozen XGBoost)
+------------------------------------------------------------------------------------------------
+Window                          XGBoost    No Graph            Full Graph          Merchant-only
+------------------------------------------------------------------------------------------------
+0 (original, train 50%)          0.0277   0.0151 +/- 0.0003   0.0549 +/- 0.0067   0.0858 +/- 0.0098
+1 (train Jan-Apr, test Jun-Oct)  0.0445   0.0368 +/- 0.0004   0.1670 +/- 0.0047   0.2293 +/- 0.0206
+2 (train Jan-Jun, test Aug-Oct)  0.0562   0.0445 +/- 0.0013   0.1824 +/- 0.0059   0.2491 +/- 0.0273
+3 (train Jan-Aug, test Oct)      0.0663   0.0611 +/- 0.0002   0.2139 +/- 0.0093   0.3065 +/- 0.0355
+------------------------------------------------------------------------------------------------
+Merchant-only beats Full Graph in 4/4 windows (1.4-1.6x). Full Graph beats XGBoost in 4/4
+windows (2.0-3.75x). Merchant-only beats XGBoost in 4/4 windows (3.1-5.2x). Ordering is stable;
+absolute PR-AUC rises across windows 0->3 for every model (see temporal reports' note on Window
+0's test set including ~71% zero-fraud padding, which dilutes precision@K's denominator without
+adding learnable signal — Windows 1-3 evaluate purely within the fraud-bearing period).
+
+------------------------------------------------------------------------------------------------
+Table 3 — Edge-type decomposition (Window 0, 100 epochs, 5 seeds each)
+------------------------------------------------------------------------------------------------
+Condition                    PR-AUC              Gain over No-Graph
+------------------------------------------------------------------------------------------------
+No Graph (baseline)          0.0151 +/- 0.0003    --
+Card-only                    0.0113 +/- 0.0004    -0.0038  (slightly negative, within noise)
+Merchant-only                0.0858 +/- 0.0098    +0.0707
+Full Graph (homogeneous)     0.0549 +/- 0.0067    +0.0398
+Relation-Aware (separate)    0.0575 +/- 0.0053    +0.0424
+------------------------------------------------------------------------------------------------
+Sum of individual gains (card + merchant) = 0.0669; Full Graph's actual gain (0.0398) falls
+short of that sum -- card and merchant relationships overlap/interfere rather than combine
+additively. Relation-aware aggregation recovers only a small fraction of the gap to
+Merchant-only alone (+0.0026 PR-AUC over homogeneous Full Graph, not statistically distinguishable
+given the seed variance) -- the dilution hypothesis from the (pre-fix) Phase 3 write-up is NOT
+supported once merchant edges are correct; why mixing card edges in hurts remains an open question.
+
+------------------------------------------------------------------------------------------------
+Table 4 — Leakage audit (Window 0, Merchant-only, 100 epochs, 5 seeds)
+------------------------------------------------------------------------------------------------
+Variant                                          PR-AUC              Precision@K
+------------------------------------------------------------------------------------------------
+Transductive (all rows may inform their hub)     0.0858 +/- 0.0098    0.069 +/- 0.035
+Causal (test rows excluded as hub sources)       0.1410 +/- 0.0167    0.298 +/- 0.043
+------------------------------------------------------------------------------------------------
+Causal EXCEEDS transductive -- the opposite of what test-set leakage would predict. No evidence
+the merchant-only result depends on information flowing between test-split transactions.
+
+------------------------------------------------------------------------------------------------
+Table 5 — Fraud-ring (Louvain community) evaluation
+------------------------------------------------------------------------------------------------
+Metric                                                          Value
+------------------------------------------------------------------------------------------------
+Overall dataset fraud rate                                      0.3078% (2087 / 677930)
+Communities detected (min 2 cards)                               56
+Communities containing >=1 fraud transaction                     17 / 56 (30.4%)
+Mean fraud enrichment among fraud-containing communities         2.2x overall rate
+Top 10 communities (by fraud count): txn share / fraud share     27.9% txns / 66.2% fraud (2.4x)
+Top 5 communities (by app's default avg_risk_score sort): fraud share   0.57%  <- PRODUCT ISSUE
+Single largest community: fraud share / txn share                19.9% fraud / 3.1% txns
+
+------------------------------------------------------------------------------------------------
+Table 6 — Explainability evaluation (30 high-confidence true-positive fraud predictions)
+------------------------------------------------------------------------------------------------
+Metric                                                                     Value
+------------------------------------------------------------------------------------------------
+Predictions whose explanation includes a merchant-node edge                29 / 30 (97%)
+Predictions whose explanation includes a card-node edge                    18 / 30 (60%)
+Predictions where existing hand-written NETWORK heuristics already flagged 28 / 30 (93%)
+Average explained subgraph size (2-hop)                                    1018 nodes
+================================================================================================

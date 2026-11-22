@@ -1,0 +1,45 @@
+============================================================================================
+FraudGraph AI — Edge-Type Ablation (Phase 4): which relationship drives the signal?
+============================================================================================
+
+Fixed config: hidden_dim=32, epochs=100, lr=0.01, seeds=[0, 1, 2, 3, 4]
+Window 0 (original default 50/10/40 temporal split). Node features identical
+across all four conditions — only which edge types are wired into the graph
+changes (gnn.build_graph include_card_edges / include_merchant_edges flags).
+
+*** CORRECTED RESULTS: gnn.build_graph had a bug where merchant node ids were
+never shifted by merchant_offset, so 'merchant edges' never reached real merchant
+nodes (verified: 0 edges touched the merchant range before the fix). Full Graph and
+Merchant-only below are RE-RUN with the fix. Card-only and No Graph are unaffected
+by this bug (cards sit at node-id offset 0; No Graph uses self-loops only) and are
+reused from the original run rather than re-trained.
+
+--------------------------------------------------------------------------------------------
+Condition                                     PR-AUC         Precision@K              Lift
+------------------------------------------------------------------------------------------
+Merchant-only (Merchant)           0.0858 +/- 0.0098     0.069 +/- 0.035    52.9x +/- 26.8
+Full Graph (Card + Merchant)       0.0549 +/- 0.0067     0.032 +/- 0.027    24.5x +/- 20.5
+No Graph (None)                    0.0151 +/- 0.0003                 n/a               n/a
+Card-only (Card)                   0.0113 +/- 0.0004                 n/a               n/a
+
+--------------------------------------------------------------------------------------------
+Per-seed PR-AUC
+--------------------------------------------------------------------------------------------
+Condition                             seed 0      seed 1      seed 2      seed 3      seed 4
+Full Graph (Card + Merchant)          0.0534      0.0508      0.0493      0.0681      0.0531
+Merchant-only (Merchant)              0.0966      0.0674      0.0892      0.0890      0.0867
+
+--------------------------------------------------------------------------------------------
+Decomposition
+--------------------------------------------------------------------------------------------
+  No graph baseline:               0.0151
+  Card-only gain over no-graph:     -0.0038  (0.0113 total)
+  Merchant-only gain over no-graph: +0.0707  (0.0858 total)
+  Full graph gain over no-graph:    +0.0398  (0.0549 total)
+  Sum of individual gains:          +0.0669
+  Full graph vs sum of individual:  -0.0270
+
+  -> The larger individual contributor is: merchant-transaction edges (0.0707 vs -0.0038).
+  -> Full graph falls short of the sum of individual gains: there is overlap/
+     redundancy between what card and merchant relationships provide.
+============================================================================================
